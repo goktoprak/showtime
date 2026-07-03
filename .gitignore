@@ -1,0 +1,4 @@
+/target
+/migrations
+showtime.db
+showtime.db-*

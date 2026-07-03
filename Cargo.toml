@@ -1,0 +1,19 @@
+[package]
+name = "showtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace", "set-header"] }
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "chrono", "migrate"] }
+libsqlite3-sys = { version = "0.27", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1"
+thiserror = "1"

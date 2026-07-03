@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ShowTime</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="topbar">
+    <div class="left">
+      <a class="site-title" href="index.html"><h1>📺 ShowTime</h1></a>
+      <div class="tabs" id="tabs"></div>
+    </div>
+    <nav>
+      <a class="btn btn-primary" href="add.html">+ Add Show</a>
+      <a class="btn" href="settings.html">Settings</a>
+    </nav>
+  </div>
+
+  <main id="content">
+    <div class="loading">Loading shows…</div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const CATEGORIES = [
+      { key: "watching", label: "Watching" },
+      { key: "continuing", label: "Continuing" },
+      { key: "watchlist", label: "Watch List" },
+      { key: "finished", label: "Finished" },
+    ];
+
+    let activeTab = localStorage.getItem("showtime_active_tab") || "watching";
+    let byCategory = {};
+
+    function showCard(show) {
+      const poster = posterUrl(show.poster_path);
+      const posterHtml = poster
+        ? `<div class="poster" style="background-image:url('${poster}')"></div>`
+        : `<div class="poster">No image</div>`;
+      return `
+        <a class="show-card" href="show.html?id=${show.id}">
+          ${posterHtml}
+          <div class="info">
+            <div class="title">${escapeHtml(show.name)}</div>
+            <div class="sub">${escapeHtml(show.tmdb_status || "")}</div>
+          </div>
+        </a>
+      `;
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement("div");
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    function renderTabs() {
+      const tabsEl = document.getElementById("tabs");
+      tabsEl.innerHTML = CATEGORIES.map(cat => {
+        const count = (byCategory[cat.key] || []).length;
+        const active = cat.key === activeTab ? "active" : "";
+        return `
+          <button class="tab-btn ${active}" data-tab="${cat.key}">
+            ${cat.label} <span class="count">${count}</span>
+          </button>
+        `;
+      }).join("");
+
+      tabsEl.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          activeTab = btn.dataset.tab;
+          localStorage.setItem("showtime_active_tab", activeTab);
+          renderTabs();
+          renderContent();
+        });
+      });
+    }
+
+    function renderContent() {
+      const content = document.getElementById("content");
+      const list = byCategory[activeTab] || [];
+      const cat = CATEGORIES.find(c => c.key === activeTab);
+
+      content.innerHTML = list.length
+        ? `<div class="grid">${list.map(showCard).join("")}</div>`
+        : `<div class="empty-state">Nothing in ${cat ? cat.label : "this category"} yet.</div>`;
+    }
+
+    async function load() {
+      const content = document.getElementById("content");
+      try {
+        const shows = await api("/shows");
+        byCategory = {};
+        for (const c of CATEGORIES) byCategory[c.key] = [];
+        for (const s of shows) {
+          (byCategory[s.status] || byCategory.watchlist).push(s);
+        }
+
+        if (shows.length === 0) {
+          document.getElementById("tabs").innerHTML = "";
+          content.innerHTML = `<div class="empty-state">No shows yet. Click "+ Add Show" to get started.</div>`;
+          return;
+        }
+
+        renderTabs();
+        renderContent();
+      } catch (e) {
+        content.innerHTML = `<div class="empty-state">Failed to load shows: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
