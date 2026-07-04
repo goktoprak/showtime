@@ -35,12 +35,12 @@ show, all seasons, and all episodes.
 
 - **Watch List** — show added, nothing marked watched yet
 - **Watching** — at least one episode watched, but not all of them
-- **Continuing** — every currently-known episode watched, and TMDB reports
+- **Ongoing** — every currently-known episode watched, and TMDB reports
   the show is still airing/in production/planned
 - **Finished** — every currently-known episode watched, and TMDB reports the
   show has ended or been canceled
 
-If a show is `Continuing` or `Finished` and you hit **Refresh Metadata** and
+If a show is `Ongoing` or `Finished` and you hit **Refresh Metadata** and
 TMDB has added new episodes/seasons since you last checked, it automatically
 drops back to `Watching` (since not everything is watched anymore).
 

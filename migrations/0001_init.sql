@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS shows (
     poster_path TEXT,
     backdrop_path TEXT,
     tmdb_status TEXT,           -- raw TMDB status: "Returning Series", "Ended", "Canceled", etc.
-    status TEXT NOT NULL DEFAULT 'watchlist',  -- 'watchlist' | 'watching' | 'continuing' | 'finished'
+    status TEXT NOT NULL DEFAULT 'watchlist',  -- 'watchlist' | 'watching' | 'ongoing' | 'finished'
     added_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_refreshed_at TEXT
 );

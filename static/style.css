@@ -262,7 +262,7 @@ main {
 }
 .status-badge.watchlist { background: var(--accent-dim); color: #b6c4ff; }
 .status-badge.watching { background: rgba(217,164,65,0.2); color: var(--amber); }
-.status-badge.continuing { background: rgba(76,175,125,0.2); color: var(--green); }
+.status-badge.ongoing { background: rgba(76,175,125,0.2); color: var(--green); }
 .status-badge.finished { background: rgba(154,158,168,0.2); color: var(--text-dim); }
 
 .season {

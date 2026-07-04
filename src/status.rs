@@ -12,9 +12,9 @@ use crate::models::tmdb_status_is_airing;
 ///     -> "watchlist" (only applies to brand new shows; see note below)
 ///   - some episodes watched, but not all -> "watching"
 ///   - all episodes watched:
-///       - TMDB status still airing/upcoming -> "continuing"
+///       - TMDB status still airing/upcoming -> "ongoing"
 ///       - TMDB status ended/canceled        -> "finished"
-///   - special case: a show previously "continuing" or "finished" that gains
+///   - special case: a show previously "ongoing" or "finished" that gains
 ///     new unwatched episodes (e.g. a new season dropped) falls back to
 ///     "watching" automatically, since the rule above already produces that
 ///     result (not-all-watched -> "watching"), no extra code needed.
@@ -23,7 +23,7 @@ use crate::models::tmdb_status_is_airing;
 /// entirely. They're still stored and shown on the show detail page and can
 /// be checked off individually, but whether they're watched has no effect
 /// on the show's category - a show with every regular-season episode
-/// watched still counts as continuing/finished even with unwatched specials.
+/// watched still counts as ongoing/finished even with unwatched specials.
 pub async fn recompute_show_status(pool: &SqlitePool, show_id: i64) -> anyhow::Result<()> {
     let total: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM episodes e
@@ -71,7 +71,7 @@ pub async fn recompute_show_status(pool: &SqlitePool, show_id: i64) -> anyhow::R
             .map(tmdb_status_is_airing)
             .unwrap_or(false);
         if airing {
-            "continuing".to_string()
+            "ongoing".to_string()
         } else {
             "finished".to_string()
         }
