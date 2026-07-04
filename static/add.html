@@ -1,69 +1,81 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Add Show - ShowTime</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <div class="topbar">
-    <a class="site-title" href="index.html"><h1>📺 ShowTime</h1></a>
-    <nav>
-      <a class="btn" href="index.html">← Back</a>
-      <a class="btn" href="settings.html">Settings</a>
-    </nav>
-  </div>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Add Show - ShowTime</title>
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div class="topbar">
+            <a class="site-title" href="index.html"><h1>📺 ShowTime</h1></a>
+            <nav>
+                <a class="btn" href="index.html">← Back</a>
+                <a class="btn" href="settings.html">Settings</a>
+            </nav>
+        </div>
 
-  <main>
-    <div class="form-page">
-      <h2>Add a Show</h2>
-      <p style="color:var(--text-dim); font-size:13px;">
-        Enter a TMDB TV show ID. You can find it in the URL of a show's page on
-        themoviedb.org, e.g. themoviedb.org/tv/<strong>1399</strong>-game-of-thrones.
-      </p>
-      <label for="tmdbId">TMDB ID</label>
-      <input id="tmdbId" type="number" placeholder="e.g. 1399" autofocus>
-      <div class="actions">
-        <button class="btn btn-primary" id="submitBtn">Add Show</button>
-      </div>
-      <div class="msg" id="msg"></div>
-    </div>
-  </main>
+        <main>
+            <div class="form-page">
+                <h2>Add a Show</h2>
+                <p style="color: var(--text-dim); font-size: 13px">
+                    Enter a TMDB TV show ID. You can find it in the URL of a
+                    show's page on themoviedb.org, e.g.
+                    themoviedb.org/tv/<strong>1399</strong>-game-of-thrones.
+                </p>
+                <label for="tmdbId">TMDB ID</label>
+                <input
+                    id="tmdbId"
+                    type="number"
+                    placeholder="e.g. 1399"
+                    autofocus
+                />
+                <div class="actions">
+                    <button class="btn btn-primary" id="submitBtn">
+                        Add Show
+                    </button>
+                </div>
+                <div class="msg" id="msg"></div>
+            </div>
+        </main>
 
-  <script src="app.js"></script>
-  <script>
-    const btn = document.getElementById("submitBtn");
-    const input = document.getElementById("tmdbId");
-    const msg = document.getElementById("msg");
+        <script src="app.js"></script>
+        <script>
+            const btn = document.getElementById("submitBtn");
+            const input = document.getElementById("tmdbId");
+            const msg = document.getElementById("msg");
 
-    async function submit() {
-      const tmdbId = parseInt(input.value, 10);
-      if (!tmdbId) {
-        msg.textContent = "Please enter a valid TMDB ID.";
-        msg.className = "msg error";
-        return;
-      }
-      btn.disabled = true;
-      btn.textContent = "Adding…";
-      msg.textContent = "";
-      try {
-        const show = await api("/shows", {
-          method: "POST",
-          body: JSON.stringify({ tmdb_id: tmdbId }),
-        });
-        msg.textContent = `Added "${show.name}". Redirecting…`;
-        msg.className = "msg success";
-        setTimeout(() => { window.location.href = `show.html?id=${show.id}`; }, 700);
-      } catch (e) {
-        msg.textContent = e.message;
-        msg.className = "msg error";
-        btn.disabled = false;
-        btn.textContent = "Add Show";
-      }
-    }
+            async function submit() {
+                const tmdbId = parseInt(input.value, 10);
+                if (!tmdbId) {
+                    msg.textContent = "Please enter a valid TMDB ID.";
+                    msg.className = "msg error";
+                    return;
+                }
+                btn.disabled = true;
+                btn.textContent = "Adding…";
+                msg.textContent = "";
+                try {
+                    const show = await api("/shows", {
+                        method: "POST",
+                        body: JSON.stringify({ tmdb_id: tmdbId }),
+                    });
+                    msg.textContent = `Added "${show.name}". Redirecting…`;
+                    msg.className = "msg success";
+                    setTimeout(() => {
+                        window.location.href = `show.html?id=${show.id}`;
+                    }, 700);
+                } catch (e) {
+                    msg.textContent = e.message;
+                    msg.className = "msg error";
+                    btn.disabled = false;
+                    btn.textContent = "Add Show";
+                }
+            }
 
-    btn.addEventListener("click", submit);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
-  </script>
-</body>
+            btn.addEventListener("click", submit);
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") submit();
+            });
+        </script>
+    </body>
 </html>

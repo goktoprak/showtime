@@ -30,6 +30,7 @@ pub async fn get_settings(State(state): State<AppState>) -> ApiResult<Json<Setti
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(SettingsResponse {
         has_api_key: key.is_some(),
+        masked_key: key.as_deref().map(crate::models::mask_api_key),
     }))
 }
 
@@ -39,6 +40,14 @@ pub async fn set_api_key(
 ) -> ApiResult<Json<serde_json::Value>> {
     sqlx::query("UPDATE settings SET tmdb_api_key = ? WHERE id = 1")
         .bind(req.api_key)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn delete_api_key(State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
+    sqlx::query("UPDATE settings SET tmdb_api_key = NULL WHERE id = 1")
         .execute(&state.pool)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -107,12 +116,11 @@ pub async fn add_show(
             )
         })?;
 
-    let existing: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM shows WHERE tmdb_id = ?")
-            .bind(req.tmdb_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let existing: Option<i64> = sqlx::query_scalar("SELECT id FROM shows WHERE tmdb_id = ?")
+        .bind(req.tmdb_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     if existing.is_some() {
         return Err(err(StatusCode::CONFLICT, "show already tracked"));
     }

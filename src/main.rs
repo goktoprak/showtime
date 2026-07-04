@@ -35,19 +35,25 @@ async fn main() -> anyhow::Result<()> {
 
     let api_routes = Router::new()
         .route("/settings", get(handlers::get_settings))
-        .route("/settings/apikey", post(handlers::set_api_key))
         .route(
-            "/shows",
-            get(handlers::list_shows).post(handlers::add_show),
+            "/settings/apikey",
+            post(handlers::set_api_key).delete(handlers::delete_api_key),
         )
+        .route("/shows", get(handlers::list_shows).post(handlers::add_show))
         .route(
             "/shows/:id",
             get(handlers::get_show_detail).delete(handlers::delete_show),
         )
         .route("/shows/:id/refresh", post(handlers::refresh_show))
         .route("/shows/:id/mark-watched", post(handlers::mark_show_watched))
-        .route("/seasons/:id/mark-watched", post(handlers::mark_season_watched))
-        .route("/episodes/:id/toggle", post(handlers::toggle_episode_watched))
+        .route(
+            "/seasons/:id/mark-watched",
+            post(handlers::mark_season_watched),
+        )
+        .route(
+            "/episodes/:id/toggle",
+            post(handlers::toggle_episode_watched),
+        )
         .with_state(state);
 
     let static_service = ServeDir::new("static");

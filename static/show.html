@@ -1,57 +1,64 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>ShowTime</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <div class="topbar">
-    <a class="site-title" href="index.html"><h1>📺 ShowTime</h1></a>
-    <nav>
-      <a class="btn" href="index.html">← Back</a>
-      <a class="btn" href="settings.html">Settings</a>
-    </nav>
-  </div>
+    <head>
+        <meta charset="UTF-8" />
+        <title>ShowTime</title>
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div class="topbar">
+            <a class="site-title" href="index.html"><h1>📺 ShowTime</h1></a>
+            <nav>
+                <a class="btn" href="index.html">← Back</a>
+                <a class="btn" href="settings.html">Settings</a>
+            </nav>
+        </div>
 
-  <main id="content">
-    <div class="loading">Loading…</div>
-  </main>
+        <main id="content">
+            <div class="loading">Loading…</div>
+        </main>
 
-  <script src="app.js"></script>
-  <script>
-    const params = new URLSearchParams(window.location.search);
-    const showId = params.get("id");
-    const content = document.getElementById("content");
+        <script src="app.js"></script>
+        <script>
+            const params = new URLSearchParams(window.location.search);
+            const showId = params.get("id");
+            const content = document.getElementById("content");
 
-    function escapeHtml(str) {
-      const d = document.createElement("div");
-      d.textContent = str || "";
-      return d.innerHTML;
-    }
+            function escapeHtml(str) {
+                const d = document.createElement("div");
+                d.textContent = str || "";
+                return d.innerHTML;
+            }
 
-    function render(detail) {
-      const s = detail;
-      const backdrop = backdropUrl(s.backdrop_path);
-      const poster = posterUrl(s.poster_path);
+            function render(detail) {
+                const s = detail;
+                const backdrop = backdropUrl(s.backdrop_path);
+                const poster = posterUrl(s.poster_path);
 
-      const seasonsHtml = s.seasons.map(sw => {
-        const total = sw.episodes.length;
-        const watched = sw.episodes.filter(e => e.watched).length;
-        const episodesHtml = sw.episodes.map(ep => `
+                const seasonsHtml = s.seasons
+                    .map((sw) => {
+                        const total = sw.episodes.length;
+                        const watched = sw.episodes.filter(
+                            (e) => e.watched,
+                        ).length;
+                        const episodesHtml = sw.episodes
+                            .map(
+                                (ep) => `
           <div class="episode-row">
             <input type="checkbox" data-ep-id="${ep.id}" ${ep.watched ? "checked" : ""}>
             <span class="ep-num">E${ep.tmdb_episode_number}</span>
             <span class="ep-name">${escapeHtml(ep.name || "Untitled")}</span>
             <span class="ep-date">${escapeHtml(ep.air_date || "")}</span>
           </div>
-        `).join("");
+        `,
+                            )
+                            .join("");
 
-        return `
+                        return `
           <div class="season" data-season-id="${sw.season.id}">
             <div class="season-header" data-toggle="${sw.season.id}">
               <div>
-                <div class="name">${escapeHtml(sw.season.name || ("Season " + sw.season.tmdb_season_number))}</div>
+                <div class="name">${escapeHtml(sw.season.name || "Season " + sw.season.tmdb_season_number)}</div>
                 <div class="progress">${watched} / ${total} watched</div>
               </div>
               <div class="season-actions">
@@ -63,9 +70,10 @@
             </div>
           </div>
         `;
-      }).join("");
+                    })
+                    .join("");
 
-      content.innerHTML = `
+                content.innerHTML = `
         <div class="show-header" ${backdrop ? `style="background-image:linear-gradient(90deg, rgba(26,29,36,1) 30%, rgba(26,29,36,0.6)), url('${backdrop}'); background-size:cover; background-position:center;"` : ""}>
           ${poster ? `<div class="poster" style="background-image:url('${poster}')"></div>` : `<div class="poster"></div>`}
           <div class="details">
@@ -82,92 +90,109 @@
         <div id="seasons">${seasonsHtml}</div>
       `;
 
-      document.getElementById("refreshBtn").addEventListener("click", refreshShow);
-      document.getElementById("markAllBtn").addEventListener("click", markAllWatched);
-      document.getElementById("deleteBtn").addEventListener("click", deleteShow);
+                document
+                    .getElementById("refreshBtn")
+                    .addEventListener("click", refreshShow);
+                document
+                    .getElementById("markAllBtn")
+                    .addEventListener("click", markAllWatched);
+                document
+                    .getElementById("deleteBtn")
+                    .addEventListener("click", deleteShow);
 
-      document.querySelectorAll(".season-header").forEach(el => {
-        el.addEventListener("click", (e) => {
-          if (e.target.closest(".mark-season-btn")) return;
-          const id = el.dataset.toggle;
-          document.getElementById(`episodes-${id}`).classList.toggle("open");
-        });
-      });
+                document.querySelectorAll(".season-header").forEach((el) => {
+                    el.addEventListener("click", (e) => {
+                        if (e.target.closest(".mark-season-btn")) return;
+                        const id = el.dataset.toggle;
+                        document
+                            .getElementById(`episodes-${id}`)
+                            .classList.toggle("open");
+                    });
+                });
 
-      document.querySelectorAll(".mark-season-btn").forEach(btn => {
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          markSeasonWatched(btn.dataset.seasonId);
-        });
-      });
+                document.querySelectorAll(".mark-season-btn").forEach((btn) => {
+                    btn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        markSeasonWatched(btn.dataset.seasonId);
+                    });
+                });
 
-      document.querySelectorAll('input[type=checkbox][data-ep-id]').forEach(cb => {
-        cb.addEventListener("change", () => toggleEpisode(cb.dataset.epId));
-      });
-    }
+                document
+                    .querySelectorAll("input[type=checkbox][data-ep-id]")
+                    .forEach((cb) => {
+                        cb.addEventListener("change", () =>
+                            toggleEpisode(cb.dataset.epId),
+                        );
+                    });
+            }
 
-    async function load() {
-      try {
-        const detail = await api(`/shows/${showId}`);
-        render(detail);
-      } catch (e) {
-        content.innerHTML = `<div class="empty-state">Failed to load show: ${escapeHtml(e.message)}</div>`;
-      }
-    }
+            async function load() {
+                try {
+                    const detail = await api(`/shows/${showId}`);
+                    render(detail);
+                } catch (e) {
+                    content.innerHTML = `<div class="empty-state">Failed to load show: ${escapeHtml(e.message)}</div>`;
+                }
+            }
 
-    async function toggleEpisode(epId) {
-      try {
-        await api(`/episodes/${epId}/toggle`, { method: "POST" });
-        load();
-      } catch (e) {
-        alert("Failed to update episode: " + e.message);
-        load();
-      }
-    }
+            async function toggleEpisode(epId) {
+                try {
+                    await api(`/episodes/${epId}/toggle`, { method: "POST" });
+                    load();
+                } catch (e) {
+                    alert("Failed to update episode: " + e.message);
+                    load();
+                }
+            }
 
-    async function markSeasonWatched(seasonId) {
-      try {
-        await api(`/seasons/${seasonId}/mark-watched`, { method: "POST" });
-        load();
-      } catch (e) {
-        alert("Failed: " + e.message);
-      }
-    }
+            async function markSeasonWatched(seasonId) {
+                try {
+                    await api(`/seasons/${seasonId}/mark-watched`, {
+                        method: "POST",
+                    });
+                    load();
+                } catch (e) {
+                    alert("Failed: " + e.message);
+                }
+            }
 
-    async function markAllWatched() {
-      try {
-        await api(`/shows/${showId}/mark-watched`, { method: "POST" });
-        load();
-      } catch (e) {
-        alert("Failed: " + e.message);
-      }
-    }
+            async function markAllWatched() {
+                try {
+                    await api(`/shows/${showId}/mark-watched`, {
+                        method: "POST",
+                    });
+                    load();
+                } catch (e) {
+                    alert("Failed: " + e.message);
+                }
+            }
 
-    async function refreshShow() {
-      const btn = document.getElementById("refreshBtn");
-      btn.disabled = true;
-      btn.textContent = "Refreshing…";
-      try {
-        await api(`/shows/${showId}/refresh`, { method: "POST" });
-        load();
-      } catch (e) {
-        alert("Refresh failed: " + e.message);
-        btn.disabled = false;
-        btn.textContent = "Refresh Metadata";
-      }
-    }
+            async function refreshShow() {
+                const btn = document.getElementById("refreshBtn");
+                btn.disabled = true;
+                btn.textContent = "Refreshing…";
+                try {
+                    await api(`/shows/${showId}/refresh`, { method: "POST" });
+                    load();
+                } catch (e) {
+                    alert("Refresh failed: " + e.message);
+                    btn.disabled = false;
+                    btn.textContent = "Refresh Metadata";
+                }
+            }
 
-    async function deleteShow() {
-      if (!confirm("Delete this show and all its watched progress?")) return;
-      try {
-        await api(`/shows/${showId}`, { method: "DELETE" });
-        window.location.href = "index.html";
-      } catch (e) {
-        alert("Failed to delete: " + e.message);
-      }
-    }
+            async function deleteShow() {
+                if (!confirm("Delete this show and all its watched progress?"))
+                    return;
+                try {
+                    await api(`/shows/${showId}`, { method: "DELETE" });
+                    window.location.href = "index.html";
+                } catch (e) {
+                    alert("Failed to delete: " + e.message);
+                }
+            }
 
-    load();
-  </script>
-</body>
+            load();
+        </script>
+    </body>
 </html>

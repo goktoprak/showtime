@@ -87,10 +87,7 @@ impl TmdbClient {
         season_number: i64,
         api_key: &str,
     ) -> Result<TmdbSeasonDetail, TmdbError> {
-        self.get(
-            &format!("/tv/{tmdb_id}/season/{season_number}"),
-            api_key,
-        )
-        .await
+        self.get(&format!("/tv/{tmdb_id}/season/{season_number}"), api_key)
+            .await
     }
 }

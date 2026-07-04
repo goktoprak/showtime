@@ -60,6 +60,24 @@ pub struct SetApiKeyRequest {
 #[derive(Debug, Serialize)]
 pub struct SettingsResponse {
     pub has_api_key: bool,
+    /// A masked preview of the stored key (e.g. "************af92"),
+    /// safe to show in the UI. The real key is never sent back to the
+    /// frontend after it's saved.
+    pub masked_key: Option<String>,
+}
+
+/// Builds a masked display version of an API key: all but the last 4
+/// characters replaced with asterisks. For very short keys (<= 4 chars,
+/// which shouldn't happen with real TMDB keys but just in case), masks
+/// everything.
+pub fn mask_api_key(key: &str) -> String {
+    let len = key.chars().count();
+    if len <= 4 {
+        "*".repeat(len)
+    } else {
+        let tail: String = key.chars().skip(len - 4).collect();
+        format!("{}{}", "*".repeat(len - 4), tail)
+    }
 }
 
 /// Maps a raw TMDB show status string into whether the show is still

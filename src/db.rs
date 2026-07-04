@@ -18,9 +18,8 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
 }
 
 pub async fn get_api_key(pool: &SqlitePool) -> anyhow::Result<Option<String>> {
-    let key: Option<String> =
-        sqlx::query_scalar("SELECT tmdb_api_key FROM settings WHERE id = 1")
-            .fetch_one(pool)
-            .await?;
+    let key: Option<String> = sqlx::query_scalar("SELECT tmdb_api_key FROM settings WHERE id = 1")
+        .fetch_one(pool)
+        .await?;
     Ok(key.filter(|k| !k.is_empty()))
 }
