@@ -1,0 +1,12 @@
+services:
+    showtime:
+        image: ghcr.io/goktoprak/showtime:latest
+        container_name: showtime
+        ports:
+            - "3000:3000"
+        volumes:
+            - showtime_data:/data
+        restart: unless-stopped
+
+volumes:
+    showtime_data:

@@ -31,6 +31,105 @@ Then use **+ Add Show**, enter a TMDB TV show ID (the number in a show's URL
 on themoviedb.org, e.g. `1399` for Game of Thrones), and it'll pull in the
 show, all seasons, and all episodes.
 
+## Running it with Docker (recommended for a home server)
+
+This is the easiest way to deploy ShowTime on a home server (Synology,
+Unraid, a Raspberry Pi, a spare Linux box, etc.) — the image is built
+automatically by GitHub Actions and published to GHCR (GitHub Container
+Registry) on every push to `main`. Your server never needs Rust, Cargo, or
+even a clone of this repo — just Docker, pulling a ready-made image.
+
+The image lives at `ghcr.io/goktoprak/showtime`, built by the workflow in
+`.github/workflows/docker-publish.yml`. It's tagged `latest` (always tracks
+the most recent push) and also `sha-<commit>` (a pinned snapshot of a
+specific commit, useful for rolling back).
+
+**One-time setup:** the package needs to be public (or you need to log in
+with a GitHub token on the server) the first time, since new GHCR packages
+default to private. After the first successful workflow run, go to
+`github.com/goktoprak/showtime` → **Packages** (right sidebar) → click the
+`showtime` package → **Package settings** → change visibility to Public.
+Skip this if you're fine authenticating `docker login ghcr.io` on the
+server instead (see below).
+
+### Using Docker Compose (simplest)
+
+On the server, you only need the `docker-compose.yml` file — not the whole
+repo:
+
+```bash
+mkdir showtime && cd showtime
+curl -O https://raw.githubusercontent.com/goktoprak/showtime/main/docker-compose.yml
+docker compose up -d
+```
+
+This pulls the pre-built image and starts the container in the background,
+exposing it on port 3000 and persisting the SQLite database in a named
+Docker volume (`showtime_data`) so your shows and watched progress survive
+container restarts and updates.
+
+Visit `http://<your-server-ip>:3000` from any device on your network.
+
+To stop it:
+```bash
+docker compose down
+```
+(this does **not** delete the volume, so your data is safe — only
+`docker compose down -v` would remove the volume too)
+
+To update to the latest pushed image:
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### Using plain Docker (no Compose, no files needed at all)
+
+```bash
+docker run -d \
+  --name showtime \
+  -p 3000:3000 \
+  -v showtime_data:/data \
+  --restart unless-stopped \
+  ghcr.io/goktoprak/showtime:latest
+```
+
+To update:
+```bash
+docker pull ghcr.io/goktoprak/showtime:latest
+docker stop showtime && docker rm showtime
+# then re-run the docker run command above
+```
+
+### If the package is private instead of public
+
+Log in on the server once with a GitHub Personal Access Token that has
+`read:packages` scope:
+```bash
+docker login ghcr.io -u goktoprak
+# paste the token when prompted for a password
+```
+Docker remembers this login, so subsequent `pull`/`compose up` commands
+work without repeating it.
+
+### Changing the port
+
+If 3000 is already used by something else on your server, change the left
+side of the port mapping — e.g. in `docker-compose.yml` change
+`"3000:3000"` to `"8080:3000"`, or with plain `docker run` change
+`-p 3000:3000` to `-p 8080:3000`. The app always listens on 3000 *inside*
+the container; only the host-side port changes.
+
+### Backing up your data
+
+The SQLite database (including your TMDB API key and all show/episode
+progress) lives entirely inside the `showtime_data` Docker volume. To back
+it up:
+```bash
+docker run --rm -v showtime_data:/data -v $(pwd):/backup debian \
+  cp /data/showtime.db /backup/showtime-backup.db
+```
+
 ## How categories work
 
 - **Watch List** — show added, nothing marked watched yet
@@ -53,6 +152,12 @@ show is first added.
 ```
 showtime/
 ├── Cargo.toml
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
+├── .github/
+│   └── workflows/
+│       └── docker-publish.yml  -- builds & pushes image to GHCR on push
 ├── migrations/
 │   └── 0001_init.sql       -- SQLite schema
 ├── src/

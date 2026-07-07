@@ -1,0 +1,6 @@
+target
+showtime.db
+showtime.db-*
+.git
+.gitignore
+README.md
