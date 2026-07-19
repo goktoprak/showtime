@@ -39,12 +39,14 @@ async fn main() -> anyhow::Result<()> {
             "/settings/apikey",
             post(handlers::set_api_key).delete(handlers::delete_api_key),
         )
+        .route("/export", get(handlers::export_data))
         .route("/shows", get(handlers::list_shows).post(handlers::add_show))
         .route(
             "/shows/:id",
             get(handlers::get_show_detail).delete(handlers::delete_show),
         )
         .route("/shows/:id/refresh", post(handlers::refresh_show))
+        .route("/shows/refresh-all", post(handlers::refresh_all_shows))
         .route("/shows/:id/mark-watched", post(handlers::mark_show_watched))
         .route(
             "/seasons/:id/mark-watched",

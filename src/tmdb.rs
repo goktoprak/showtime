@@ -90,4 +90,12 @@ impl TmdbClient {
         self.get(&format!("/tv/{tmdb_id}/season/{season_number}"), api_key)
             .await
     }
+
+    /// Cheap call to check whether an API key is accepted by TMDB, without
+    /// needing to know any show/season id. Errors if the key is invalid.
+    pub async fn validate_key(&self, api_key: &str) -> Result<(), TmdbError> {
+        self.get::<serde_json::Value>("/authentication", api_key)
+            .await?;
+        Ok(())
+    }
 }

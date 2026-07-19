@@ -86,13 +86,44 @@
         <label>TMDB API Key</label>
         <input type="text" value="${escapeHtml(maskedKey)}" disabled>
         <div class="actions">
+          <button class="btn" id="refreshAllBtn">Refresh All Shows</button>
+          <a class="btn" href="/api/export" download>Download Backup</a>
           <button class="btn btn-danger" id="deleteBtn">Delete API Key</button>
         </div>
         <div class="msg" id="msg"></div>
       `;
 
+                const refreshAllBtn = document.getElementById("refreshAllBtn");
                 const deleteBtn = document.getElementById("deleteBtn");
                 const msg = document.getElementById("msg");
+
+                refreshAllBtn.addEventListener("click", async () => {
+                    // Lock the current width so swapping in the shorter
+                    // "Refreshing…" label doesn't make the button shrink.
+                    refreshAllBtn.style.minWidth = `${refreshAllBtn.offsetWidth}px`;
+                    refreshAllBtn.disabled = true;
+                    refreshAllBtn.textContent = "Refreshing…";
+                    msg.textContent = "";
+                    msg.className = "msg";
+                    try {
+                        const result = await api("/shows/refresh-all", {
+                            method: "POST",
+                        });
+                        const parts = [
+                            `Refreshed ${result.refreshed} show${result.refreshed === 1 ? "" : "s"}.`,
+                        ];
+                        if (result.failed) parts.push(`${result.failed} failed.`);
+                        msg.textContent = parts.join(" ");
+                        msg.className = "msg";
+                    } catch (e) {
+                        msg.textContent = e.message;
+                        msg.className = "msg error";
+                    } finally {
+                        refreshAllBtn.disabled = false;
+                        refreshAllBtn.textContent = "Refresh All Shows";
+                        refreshAllBtn.style.minWidth = "";
+                    }
+                });
 
                 deleteBtn.addEventListener("click", async () => {
                     if (

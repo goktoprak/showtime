@@ -1,6 +1,7 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
+    response::IntoResponse,
     Json,
 };
 use chrono::Utc;
@@ -38,12 +39,57 @@ pub async fn set_api_key(
     State(state): State<AppState>,
     Json(req): Json<SetApiKeyRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let key = req.api_key.trim();
+    if key.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "API key cannot be empty"));
+    }
+
+    state.tmdb.validate_key(key).await.map_err(|e| {
+        err(
+            StatusCode::BAD_REQUEST,
+            format!("TMDB rejected this key: {e}"),
+        )
+    })?;
+
     sqlx::query("UPDATE settings SET tmdb_api_key = ? WHERE id = 1")
-        .bind(req.api_key)
+        .bind(key)
         .execute(&state.pool)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Streams a consistent snapshot of the SQLite database (via `VACUUM INTO`,
+/// so it's safe even if WAL has uncheckpointed writes) as a downloadable
+/// file, for use as a manual backup.
+pub async fn export_data(State(state): State<AppState>) -> ApiResult<impl IntoResponse> {
+    let tmp_path = std::env::temp_dir().join(format!(
+        "showtime-export-{}.db",
+        Utc::now().timestamp_micros()
+    ));
+    let tmp_path_str = tmp_path.to_string_lossy().to_string();
+
+    sqlx::query("VACUUM INTO ?")
+        .bind(&tmp_path_str)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let bytes = tokio::fs::read(&tmp_path)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let _ = tokio::fs::remove_file(&tmp_path).await;
+
+    let filename = format!("showtime-backup-{}.db", Utc::now().format("%Y%m%d-%H%M%S"));
+    let headers = [
+        (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        ),
+    ];
+
+    Ok((headers, bytes))
 }
 
 pub async fn delete_api_key(State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
@@ -174,6 +220,39 @@ pub async fn refresh_show(
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| err(StatusCode::BAD_REQUEST, "no TMDB API key set"))?;
 
+    let show = refresh_show_by_id(&state, show_id, &api_key).await?;
+    Ok(Json(show))
+}
+
+pub async fn refresh_all_shows(
+    State(state): State<AppState>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let api_key = db::get_api_key(&state.pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "no TMDB API key set"))?;
+
+    let show_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM shows")
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut refreshed = 0;
+    let mut failed = 0;
+    for show_id in show_ids {
+        match refresh_show_by_id(&state, show_id, &api_key).await {
+            Ok(_) => refreshed += 1,
+            Err(_) => failed += 1,
+        }
+    }
+
+    Ok(Json(json!({ "refreshed": refreshed, "failed": failed })))
+}
+
+/// Re-fetches a single show (plus all its seasons/episodes) from TMDB and
+/// recomputes its category. Shared by both the single-show and
+/// refresh-all-shows endpoints.
+async fn refresh_show_by_id(state: &AppState, show_id: i64, api_key: &str) -> ApiResult<Show> {
     let tmdb_id: i64 = sqlx::query_scalar("SELECT tmdb_id FROM shows WHERE id = ?")
         .bind(show_id)
         .fetch_optional(&state.pool)
@@ -183,7 +262,7 @@ pub async fn refresh_show(
 
     let tmdb_show = state
         .tmdb
-        .get_show(tmdb_id, &api_key)
+        .get_show(tmdb_id, api_key)
         .await
         .map_err(|e| err(StatusCode::BAD_GATEWAY, format!("TMDB error: {e}")))?;
 
@@ -204,7 +283,7 @@ pub async fn refresh_show(
     .await
     .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    fetch_and_store_seasons(&state, show_id, tmdb_id, &tmdb_show, &api_key).await?;
+    fetch_and_store_seasons(state, show_id, tmdb_id, &tmdb_show, api_key).await?;
 
     recompute_show_status(&state.pool, show_id)
         .await
@@ -216,7 +295,7 @@ pub async fn refresh_show(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(show))
+    Ok(show)
 }
 
 pub async fn delete_show(
