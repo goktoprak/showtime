@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use crate::models::tmdb_status_is_airing;
+use shared::tmdb_status_is_airing;
 
 /// Recomputes and persists a show's category based on its episodes' watched
 /// state and the show's raw TMDB status. Call this after:
@@ -85,3 +85,4 @@ pub async fn recompute_show_status(pool: &SqlitePool, show_id: i64) -> anyhow::R
 
     Ok(())
 }
+

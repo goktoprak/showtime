@@ -7,15 +7,12 @@ use axum::{
 use chrono::Utc;
 use serde_json::json;
 
-use crate::{
-    db,
-    models::{
-        AddShowRequest, Episode, Season, SeasonWithEpisodes, SetApiKeyRequest, SettingsResponse,
-        Show, ShowDetail,
-    },
-    status::recompute_show_status,
-    AppState,
+use shared::{
+    AddShowRequest, Episode, Season, SeasonWithEpisodes, SetApiKeyRequest, SettingsResponse, Show,
+    ShowDetail,
 };
+
+use crate::{db, status::recompute_show_status, AppState};
 
 type ApiResult<T> = Result<T, (StatusCode, Json<serde_json::Value>)>;
 
@@ -31,7 +28,7 @@ pub async fn get_settings(State(state): State<AppState>) -> ApiResult<Json<Setti
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(SettingsResponse {
         has_api_key: key.is_some(),
-        masked_key: key.as_deref().map(crate::models::mask_api_key),
+        masked_key: key.as_deref().map(shared::mask_api_key),
     }))
 }
 

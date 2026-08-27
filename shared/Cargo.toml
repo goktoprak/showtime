@@ -1,0 +1,15 @@
+[package]
+name = "shared"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+# Only pulled in for the server build. sqlx does not compile for
+# wasm32-unknown-unknown, so the `FromRow` derives on the row structs are
+# gated behind `ssr` and the `web` crate depends on this crate without it.
+sqlx = { workspace = true, optional = true }
+
+[features]
+default = []
+ssr = ["dep:sqlx"]

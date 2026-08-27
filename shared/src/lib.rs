@@ -1,6 +1,15 @@
+//! Types shared between the server and the web frontend.
+//!
+//! Every type here is both `Serialize` and `Deserialize`: the server writes
+//! them onto the wire and the frontend reads them back off it, so both
+//! directions are needed on both sides. The `sqlx::FromRow` derives are the
+//! exception - they're gated behind the `ssr` feature, since sqlx doesn't
+//! build for `wasm32-unknown-unknown`.
+
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
 pub struct Show {
     pub id: i64,
     pub tmdb_id: i64,
@@ -14,7 +23,8 @@ pub struct Show {
     pub last_refreshed_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
 pub struct Season {
     pub id: i64,
     pub show_id: i64,
@@ -23,7 +33,8 @@ pub struct Season {
     pub episode_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
 pub struct Episode {
     pub id: i64,
     pub season_id: i64,
@@ -34,30 +45,30 @@ pub struct Episode {
     pub watched_at: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeasonWithEpisodes {
     pub season: Season,
     pub episodes: Vec<Episode>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShowDetail {
     #[serde(flatten)]
     pub show: Show,
     pub seasons: Vec<SeasonWithEpisodes>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddShowRequest {
     pub tmdb_id: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetApiKeyRequest {
     pub api_key: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsResponse {
     pub has_api_key: bool,
     /// A masked preview of the stored key (e.g. "************af92"),
@@ -88,3 +99,4 @@ pub fn tmdb_status_is_airing(tmdb_status: &str) -> bool {
         "Returning Series" | "In Production" | "Planned" | "Pilot"
     )
 }
+
