@@ -10,9 +10,7 @@ use axum::{
 };
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use tower_http::{
-    cors::CorsLayer, services::ServeDir, set_header::SetResponseHeaderLayer, trace::TraceLayer,
-};
+use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer, trace::TraceLayer};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -55,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
             "/episodes/:id/toggle",
             post(handlers::toggle_episode_watched),
         )
+        .fallback(handlers::api_not_found)
         .with_state(state);
 
     let static_service = ServeDir::new("static");
@@ -62,11 +61,14 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .nest("/api", api_routes)
         .fallback_service(static_service)
+        // Stage 4 splits this: `no-store` stays for /api and index.html,
+        // while trunk's content-hashed assets get long-lived immutable
+        // caching. Until those hashed filenames exist, blanket no-store is
+        // still the correct behaviour.
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
         ))
-        .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 
     let bind_addr = std::env::var("SHOWTIME_BIND").unwrap_or_else(|_| "0.0.0.0:3000".to_string());

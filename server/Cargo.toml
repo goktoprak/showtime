@@ -10,7 +10,7 @@ shared = { path = "../shared", features = ["ssr"] }
 
 axum = { version = "0.7", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs", "cors", "trace", "set-header"] }
+tower-http = { version = "0.5", features = ["fs", "trace", "set-header"] }
 sqlx = { workspace = true }
 libsqlite3-sys = { version = "0.27", features = ["bundled"] }
 serde = { workspace = true }

@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde_json::json;
+use sqlx::SqlitePool;
 
 use shared::{
     AddShowRequest, Episode, Season, SeasonWithEpisodes, SetApiKeyRequest, SettingsResponse, Show,
@@ -18,6 +19,18 @@ type ApiResult<T> = Result<T, (StatusCode, Json<serde_json::Value>)>;
 
 fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
     (status, Json(json!({ "error": msg.into() })))
+}
+
+/// Loads a show row, 404ing if it doesn't exist. Every endpoint that returns
+/// a show goes through here so the not-found behaviour is identical across
+/// all of them.
+async fn load_show(pool: &SqlitePool, show_id: i64) -> ApiResult<Show> {
+    sqlx::query_as::<_, Show>("SELECT * FROM shows WHERE id = ?")
+        .bind(show_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "show not found"))
 }
 
 // ---------- settings ----------
@@ -111,12 +124,7 @@ pub async fn get_show_detail(
     State(state): State<AppState>,
     Path(show_id): Path<i64>,
 ) -> ApiResult<Json<ShowDetail>> {
-    let show = sqlx::query_as::<_, Show>("SELECT * FROM shows WHERE id = ?")
-        .bind(show_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "show not found"))?;
+    let show = load_show(&state.pool, show_id).await?;
 
     let seasons = sqlx::query_as::<_, Season>(
         "SELECT * FROM seasons WHERE show_id = ? ORDER BY tmdb_season_number ASC",
@@ -199,13 +207,7 @@ pub async fn add_show(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let show = sqlx::query_as::<_, Show>("SELECT * FROM shows WHERE id = ?")
-        .bind(show_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(Json(show))
+    Ok(Json(load_show(&state.pool, show_id).await?))
 }
 
 pub async fn refresh_show(
@@ -286,13 +288,7 @@ async fn refresh_show_by_id(state: &AppState, show_id: i64, api_key: &str) -> Ap
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let show = sqlx::query_as::<_, Show>("SELECT * FROM shows WHERE id = ?")
-        .bind(show_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(show)
+    load_show(&state.pool, show_id).await
 }
 
 pub async fn delete_show(
@@ -363,10 +359,17 @@ async fn fetch_and_store_seasons(
 
 // ---------- episodes ----------
 
+// All three mutation endpoints below return the show row rather than the
+// thing they mutated. The client updates checkboxes optimistically - it
+// already knows what it clicked - but it cannot derive the show's category
+// locally, because `recompute_show_status` excludes specials and depends on
+// the raw TMDB status. Returning the recomputed row keeps that rule in one
+// place instead of mirroring it in the frontend.
+
 pub async fn toggle_episode_watched(
     State(state): State<AppState>,
     Path(episode_id): Path<i64>,
-) -> ApiResult<Json<Episode>> {
+) -> ApiResult<Json<Show>> {
     let current: bool = sqlx::query_scalar("SELECT watched FROM episodes WHERE id = ?")
         .bind(episode_id)
         .fetch_optional(&state.pool)
@@ -403,19 +406,22 @@ pub async fn toggle_episode_watched(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let episode = sqlx::query_as::<_, Episode>("SELECT * FROM episodes WHERE id = ?")
-        .bind(episode_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(Json(episode))
+    Ok(Json(load_show(&state.pool, show_id).await?))
 }
 
 pub async fn mark_season_watched(
     State(state): State<AppState>,
     Path(season_id): Path<i64>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<Show>> {
+    // Resolve the season first so an unknown id is a 404 rather than a 500
+    // out of the status recompute further down.
+    let show_id: i64 = sqlx::query_scalar("SELECT show_id FROM seasons WHERE id = ?")
+        .bind(season_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "season not found"))?;
+
     let now = Utc::now().to_rfc3339();
 
     sqlx::query("UPDATE episodes SET watched = 1, watched_at = ? WHERE season_id = ?")
@@ -425,23 +431,20 @@ pub async fn mark_season_watched(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let show_id: i64 = sqlx::query_scalar("SELECT show_id FROM seasons WHERE id = ?")
-        .bind(season_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     recompute_show_status(&state.pool, show_id)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(load_show(&state.pool, show_id).await?))
 }
 
 pub async fn mark_show_watched(
     State(state): State<AppState>,
     Path(show_id): Path<i64>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<Show>> {
+    // Same reason as above: 404 before mutating anything.
+    load_show(&state.pool, show_id).await?;
+
     let now = Utc::now().to_rfc3339();
 
     sqlx::query(
@@ -458,5 +461,15 @@ pub async fn mark_show_watched(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(load_show(&state.pool, show_id).await?))
+}
+
+// ---------- fallback ----------
+
+/// Catch-all for unmatched paths under `/api`. Without this, a typo'd
+/// endpoint falls through to the outer static-file fallback - which becomes
+/// actively misleading in stage 4, when that fallback starts serving
+/// index.html and a bad API path would return HTML with a 200.
+pub async fn api_not_found() -> (StatusCode, Json<serde_json::Value>) {
+    err(StatusCode::NOT_FOUND, "no such API endpoint")
 }
