@@ -3610,6 +3610,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shared",
+ "web-sys",
 ]
 
 [[package]]
