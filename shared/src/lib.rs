@@ -100,3 +100,48 @@ pub fn tmdb_status_is_airing(tmdb_status: &str) -> bool {
     )
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn masking_keeps_only_the_last_four_characters() {
+        assert_eq!(mask_api_key("abcdef1234567890"), "************7890");
+    }
+
+    #[test]
+    fn masking_hides_everything_for_short_keys() {
+        assert_eq!(mask_api_key(""), "");
+        assert_eq!(mask_api_key("a"), "*");
+        assert_eq!(mask_api_key("abcd"), "****");
+    }
+
+    #[test]
+    fn masking_reveals_the_tail_from_five_characters_up() {
+        assert_eq!(mask_api_key("abcde"), "*bcde");
+    }
+
+    /// The masking arithmetic uses `chars().count()`, not byte length. A
+    /// multi-byte key must not panic or slice mid-character.
+    #[test]
+    fn masking_counts_characters_not_bytes() {
+        assert_eq!(mask_api_key("áéíóúab"), "***óúab");
+        assert_eq!(mask_api_key("🔑🔑🔑🔑🔑"), "*🔑🔑🔑🔑");
+        // Exactly 4 characters but 16 bytes - must mask all of it.
+        assert_eq!(mask_api_key("🔑🔑🔑🔑"), "****");
+    }
+
+    #[test]
+    fn airing_statuses_are_recognised() {
+        for s in ["Returning Series", "In Production", "Planned", "Pilot"] {
+            assert!(tmdb_status_is_airing(s), "{s} should count as airing");
+        }
+    }
+
+    #[test]
+    fn finished_and_unknown_statuses_are_not_airing() {
+        for s in ["Ended", "Canceled", "Cancelled", "", "returning series"] {
+            assert!(!tmdb_status_is_airing(s), "{s} should not count as airing");
+        }
+    }
+}
