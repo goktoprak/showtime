@@ -473,3 +473,24 @@ main {
     padding: 30px;
     text-align: center;
 }
+
+/* ---------- Added during the wasm migration ---------- */
+/* Everything above this line is static/style.css unchanged.
+ *
+ * These three rules exist only because the show page now reports errors
+ * inline instead of through alert(). `.msg` was previously defined solely
+ * as `.form-page .msg`, so it styled nothing outside the add and settings
+ * pages. The nested rules above are more specific and carry identical
+ * values, so nothing on those two pages renders differently. */
+.msg {
+    margin-top: 14px;
+    font-size: 13px;
+}
+
+.msg.error {
+    color: var(--red);
+}
+
+.msg.success {
+    color: var(--green);
+}

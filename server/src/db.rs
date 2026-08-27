@@ -12,7 +12,7 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
         .connect_with(opts)
         .await?;
 
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    sqlx::migrate!("../migrations").run(&pool).await?;
 
     Ok(pool)
 }
