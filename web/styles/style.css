@@ -494,3 +494,11 @@ main {
 .msg.success {
     color: var(--green);
 }
+
+/* Sized for the "Refresh All Shows" label so that swapping in the shorter
+ * "Refreshing…" text while the request is in flight doesn't make the button
+ * shrink. This replaces a click handler that measured the button and set
+ * min-width on the element directly. */
+.btn.refresh-all {
+    min-width: 150px;
+}

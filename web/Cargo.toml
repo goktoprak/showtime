@@ -15,8 +15,4 @@ serde_json = { workspace = true }
 console_error_panic_hook = "0.1"
 # leptos pulls web-sys in already; this only turns on the Storage feature,
 # which the dashboard needs to remember the selected category tab.
-web-sys = { version = "0.3", features = [
-    "Storage",
-    "HtmlElement",
-    "CssStyleDeclaration",
-] }
+web-sys = { version = "0.3", features = ["Storage"] }

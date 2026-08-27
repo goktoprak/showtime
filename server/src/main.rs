@@ -1,6 +1,8 @@
+mod catalog;
 mod db;
+mod error;
 mod handlers;
-mod status;
+mod sync;
 mod tmdb;
 
 use axum::{

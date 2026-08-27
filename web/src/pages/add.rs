@@ -6,14 +6,23 @@ use shared::{AddShowRequest, Show};
 use std::time::Duration;
 
 use crate::api;
-use crate::components::Topbar;
+use crate::components::{Message, Notice, Topbar};
+
+/// Where the form is in its one-shot lifecycle. The button is disabled for
+/// anything but `Idle`: once the redirect is queued a second click would fire
+/// another add while the timeout is still pending.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Idle,
+    Submitting,
+    Redirecting,
+}
 
 #[component]
 pub fn AddPage() -> impl IntoView {
     let input: NodeRef<html::Input> = NodeRef::new();
-    // (text, is_error) - the success case is styled differently, so this
-    // can't just be an error signal.
-    let message = RwSignal::new(None::<(String, bool)>);
+    let message = RwSignal::new(None::<Message>);
+    let phase = RwSignal::new(Phase::Idle);
     let navigate = use_navigate();
 
     let add = Action::new_local(|tmdb_id: &i64| {
@@ -25,7 +34,11 @@ pub fn AddPage() -> impl IntoView {
         if let Some(result) = add.value().get() {
             match result {
                 Ok(show) => {
-                    message.set(Some((format!("Added \"{}\". Redirecting…", show.name), false)));
+                    message.set(Some(Message::success(format!(
+                        "Added \"{}\". Redirecting…",
+                        show.name
+                    ))));
+                    phase.set(Phase::Redirecting);
                     let navigate = navigate.clone();
                     let id = show.id;
                     set_timeout(
@@ -33,7 +46,10 @@ pub fn AddPage() -> impl IntoView {
                         Duration::from_millis(700),
                     );
                 }
-                Err(e) => message.set(Some((e.to_string(), true))),
+                Err(e) => {
+                    message.set(Some(Message::error(e.to_string())));
+                    phase.set(Phase::Idle);
+                }
             }
         }
     });
@@ -41,19 +57,23 @@ pub fn AddPage() -> impl IntoView {
     // A blank field, a non-number, or 0 are all rejected, matching what the
     // old `if (!tmdbId)` check did after parseInt.
     let submit = move || {
+        // The button is disabled while busy, but the Enter key isn't, so the
+        // phase has to be checked here too.
+        if phase.get_untracked() != Phase::Idle {
+            return;
+        }
         let raw = input.get().map(|el| el.value()).unwrap_or_default();
         match raw.trim().parse::<i64>() {
             Ok(id) if id != 0 => {
                 message.set(None);
+                phase.set(Phase::Submitting);
                 add.dispatch(id);
             }
-            _ => message.set(Some(("Please enter a valid TMDB ID.".to_string(), true))),
+            _ => message.set(Some(Message::error("Please enter a valid TMDB ID."))),
         }
     };
 
-    // Once the redirect is queued the button must stay disabled, or a second
-    // click would fire another add while the timeout is still pending.
-    let busy = move || add.pending().get() || matches!(message.get(), Some((_, false)));
+    let busy = move || phase.get() != Phase::Idle;
 
     view! {
         <Topbar>
@@ -82,15 +102,7 @@ pub fn AddPage() -> impl IntoView {
                         {move || if busy() { "Adding…" } else { "Add Show" }}
                     </button>
                 </div>
-                {move || {
-                    message
-                        .get()
-                        .map(|(text, is_error)| {
-                            view! {
-                                <div class=if is_error { "msg error" } else { "msg success" }>{text}</div>
-                            }
-                        })
-                }}
+                <Notice message=message/>
             </div>
         </main>
     }

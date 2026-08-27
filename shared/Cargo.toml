@@ -10,6 +10,9 @@ serde = { workspace = true }
 # gated behind `ssr` and the `web` crate depends on this crate without it.
 sqlx = { workspace = true, optional = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [features]
 default = []
 ssr = ["dep:sqlx"]

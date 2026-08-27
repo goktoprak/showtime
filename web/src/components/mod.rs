@@ -1,5 +1,5 @@
-mod error_msg;
+mod notice;
 mod topbar;
 
-pub use error_msg::ErrorMsg;
+pub use notice::{Message, Notice};
 pub use topbar::Topbar;

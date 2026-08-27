@@ -1,3 +1,7 @@
+//! HTTP adapters over the catalog. Each handler extracts its arguments, calls
+//! one catalog operation, and lets `?` turn a failure into a response - the
+//! mapping lives in `error.rs`, the SQL lives in `catalog`.
+
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
@@ -6,39 +10,26 @@ use axum::{
 };
 use chrono::Utc;
 use serde_json::json;
-use sqlx::SqlitePool;
 
 use shared::{
-    AddShowRequest, Episode, RefreshAllResponse, Season, SeasonWithEpisodes, SetApiKeyRequest,
-    SettingsResponse, Show, ShowDetail,
+    AddShowRequest, RefreshAllResponse, SetApiKeyRequest, SettingsResponse, Show, ShowDetail,
 };
 
-use crate::{db, status::recompute_show_status, AppState};
+use crate::{catalog, error::AppError, sync, AppState};
 
-type ApiResult<T> = Result<T, (StatusCode, Json<serde_json::Value>)>;
+type ApiResult<T> = Result<T, AppError>;
 
-fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
-    (status, Json(json!({ "error": msg.into() })))
-}
-
-/// Loads a show row, 404ing if it doesn't exist. Every endpoint that returns
-/// a show goes through here so the not-found behaviour is identical across
-/// all of them.
-async fn load_show(pool: &SqlitePool, show_id: i64) -> ApiResult<Show> {
-    sqlx::query_as::<_, Show>("SELECT * FROM shows WHERE id = ?")
-        .bind(show_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "show not found"))
+/// The key must be present for anything that talks to TMDB.
+async fn require_api_key(state: &AppState, missing: &'static str) -> ApiResult<String> {
+    catalog::api_key(&state.pool)
+        .await?
+        .ok_or(AppError::BadRequest(missing.to_string()))
 }
 
 // ---------- settings ----------
 
 pub async fn get_settings(State(state): State<AppState>) -> ApiResult<Json<SettingsResponse>> {
-    let key = db::get_api_key(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let key = catalog::api_key(&state.pool).await?;
     Ok(Json(SettingsResponse {
         has_api_key: key.is_some(),
         masked_key: key.as_deref().map(shared::mask_api_key),
@@ -51,27 +42,28 @@ pub async fn set_api_key(
 ) -> ApiResult<Json<serde_json::Value>> {
     let key = req.api_key.trim();
     if key.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "API key cannot be empty"));
+        return Err(AppError::BadRequest("API key cannot be empty".into()));
     }
 
-    state.tmdb.validate_key(key).await.map_err(|e| {
-        err(
-            StatusCode::BAD_REQUEST,
-            format!("TMDB rejected this key: {e}"),
-        )
-    })?;
-
-    sqlx::query("UPDATE settings SET tmdb_api_key = ? WHERE id = 1")
-        .bind(key)
-        .execute(&state.pool)
+    // A key TMDB won't accept is the user's problem, not a bad gateway, so
+    // this one site overrides the default `TmdbError` mapping.
+    state
+        .tmdb
+        .validate_key(key)
         .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| AppError::BadRequest(format!("TMDB rejected this key: {e}")))?;
+
+    catalog::set_api_key(&state.pool, key).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
-/// Streams a consistent snapshot of the SQLite database (via `VACUUM INTO`,
-/// so it's safe even if WAL has uncheckpointed writes) as a downloadable
-/// file, for use as a manual backup.
+pub async fn delete_api_key(State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
+    catalog::clear_api_key(&state.pool).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Serves a consistent snapshot of the database as a downloadable file, for
+/// use as a manual backup.
 pub async fn export_data(State(state): State<AppState>) -> ApiResult<impl IntoResponse> {
     let tmp_path = std::env::temp_dir().join(format!(
         "showtime-export-{}.db",
@@ -79,16 +71,13 @@ pub async fn export_data(State(state): State<AppState>) -> ApiResult<impl IntoRe
     ));
     let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
-    sqlx::query("VACUUM INTO ?")
-        .bind(&tmp_path_str)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    catalog::snapshot(&state.pool, &tmp_path_str).await?;
 
-    let bytes = tokio::fs::read(&tmp_path)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // Remove the snapshot before propagating a read failure, or a failed
+    // export would leave the copy behind in the temp dir for good.
+    let read = tokio::fs::read(&tmp_path).await;
     let _ = tokio::fs::remove_file(&tmp_path).await;
+    let bytes = read.map_err(|e| AppError::Internal(e.to_string()))?;
 
     let filename = format!("showtime-backup-{}.db", Utc::now().format("%Y%m%d-%H%M%S"));
     let headers = [
@@ -102,144 +91,55 @@ pub async fn export_data(State(state): State<AppState>) -> ApiResult<impl IntoRe
     Ok((headers, bytes))
 }
 
-pub async fn delete_api_key(State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
-    sqlx::query("UPDATE settings SET tmdb_api_key = NULL WHERE id = 1")
-        .execute(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(json!({ "ok": true })))
-}
-
 // ---------- shows ----------
 
 pub async fn list_shows(State(state): State<AppState>) -> ApiResult<Json<Vec<Show>>> {
-    let shows = sqlx::query_as::<_, Show>("SELECT * FROM shows ORDER BY name COLLATE NOCASE ASC")
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(shows))
+    Ok(Json(catalog::list(&state.pool).await?))
 }
 
 pub async fn get_show_detail(
     State(state): State<AppState>,
     Path(show_id): Path<i64>,
 ) -> ApiResult<Json<ShowDetail>> {
-    let show = load_show(&state.pool, show_id).await?;
-
-    let seasons = sqlx::query_as::<_, Season>(
-        "SELECT * FROM seasons WHERE show_id = ? ORDER BY tmdb_season_number ASC",
-    )
-    .bind(show_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let mut seasons_with_episodes = Vec::with_capacity(seasons.len());
-    for season in seasons {
-        let episodes = sqlx::query_as::<_, Episode>(
-            "SELECT * FROM episodes WHERE season_id = ? ORDER BY tmdb_episode_number ASC",
-        )
-        .bind(season.id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        seasons_with_episodes.push(SeasonWithEpisodes { season, episodes });
-    }
-
-    Ok(Json(ShowDetail {
-        show,
-        seasons: seasons_with_episodes,
-    }))
+    Ok(Json(catalog::detail(&state.pool, show_id).await?))
 }
 
 pub async fn add_show(
     State(state): State<AppState>,
     Json(req): Json<AddShowRequest>,
 ) -> ApiResult<Json<Show>> {
-    let api_key = db::get_api_key(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| {
-            err(
-                StatusCode::BAD_REQUEST,
-                "no TMDB API key set - add one in Settings first",
-            )
-        })?;
+    let api_key = require_api_key(&state, "no TMDB API key set - add one in Settings first").await?;
 
-    let existing: Option<i64> = sqlx::query_scalar("SELECT id FROM shows WHERE tmdb_id = ?")
-        .bind(req.tmdb_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    if existing.is_some() {
-        return Err(err(StatusCode::CONFLICT, "show already tracked"));
+    if catalog::is_tracked(&state.pool, req.tmdb_id).await? {
+        return Err(AppError::Conflict("show already tracked".into()));
     }
 
-    let tmdb_show = state
-        .tmdb
-        .get_show(req.tmdb_id, &api_key)
-        .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, format!("TMDB error: {e}")))?;
+    // Fetch everything before writing anything: a TMDB failure here must not
+    // leave a tracked-but-empty show that can never be re-added.
+    let fetched = sync::fetch_show(&state.tmdb, req.tmdb_id, &api_key).await?;
 
-    let now = Utc::now().to_rfc3339();
-
-    let show_id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO shows (tmdb_id, name, overview, poster_path, backdrop_path, tmdb_status, status, added_at, last_refreshed_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'watchlist', ?, ?)
-         RETURNING id",
-    )
-    .bind(tmdb_show.id)
-    .bind(&tmdb_show.name)
-    .bind(&tmdb_show.overview)
-    .bind(&tmdb_show.poster_path)
-    .bind(&tmdb_show.backdrop_path)
-    .bind(&tmdb_show.status)
-    .bind(&now)
-    .bind(&now)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    fetch_and_store_seasons(&state, show_id, req.tmdb_id, &tmdb_show, &api_key).await?;
-
-    recompute_show_status(&state.pool, show_id)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(Json(load_show(&state.pool, show_id).await?))
+    Ok(Json(catalog::insert_show(&state.pool, &fetched).await?))
 }
 
 pub async fn refresh_show(
     State(state): State<AppState>,
     Path(show_id): Path<i64>,
 ) -> ApiResult<Json<Show>> {
-    let api_key = db::get_api_key(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "no TMDB API key set"))?;
-
-    let show = refresh_show_by_id(&state, show_id, &api_key).await?;
-    Ok(Json(show))
+    let api_key = require_api_key(&state, "no TMDB API key set").await?;
+    Ok(Json(refresh_one(&state, show_id, &api_key).await?))
 }
 
 pub async fn refresh_all_shows(
     State(state): State<AppState>,
 ) -> ApiResult<Json<RefreshAllResponse>> {
-    let api_key = db::get_api_key(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "no TMDB API key set"))?;
-
-    let show_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM shows")
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let api_key = require_api_key(&state, "no TMDB API key set").await?;
 
     let mut refreshed = 0i64;
     let mut failed = 0i64;
-    for show_id in show_ids {
-        match refresh_show_by_id(&state, show_id, &api_key).await {
+    // Sequential across shows on purpose: each refresh already fetches its
+    // seasons concurrently, and TMDB should not see the product of the two.
+    for show in catalog::list(&state.pool).await? {
+        match refresh_one(&state, show.id, &api_key).await {
             Ok(_) => refreshed += 1,
             Err(_) => failed += 1,
         }
@@ -248,228 +148,53 @@ pub async fn refresh_all_shows(
     Ok(Json(RefreshAllResponse { refreshed, failed }))
 }
 
-/// Re-fetches a single show (plus all its seasons/episodes) from TMDB and
-/// recomputes its category. Shared by both the single-show and
-/// refresh-all-shows endpoints.
-async fn refresh_show_by_id(state: &AppState, show_id: i64, api_key: &str) -> ApiResult<Show> {
-    let tmdb_id: i64 = sqlx::query_scalar("SELECT tmdb_id FROM shows WHERE id = ?")
-        .bind(show_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "show not found"))?;
-
-    let tmdb_show = state
-        .tmdb
-        .get_show(tmdb_id, api_key)
-        .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, format!("TMDB error: {e}")))?;
-
-    let now = Utc::now().to_rfc3339();
-
-    sqlx::query(
-        "UPDATE shows SET name = ?, overview = ?, poster_path = ?, backdrop_path = ?, tmdb_status = ?, last_refreshed_at = ?
-         WHERE id = ?",
-    )
-    .bind(&tmdb_show.name)
-    .bind(&tmdb_show.overview)
-    .bind(&tmdb_show.poster_path)
-    .bind(&tmdb_show.backdrop_path)
-    .bind(&tmdb_show.status)
-    .bind(&now)
-    .bind(show_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    fetch_and_store_seasons(state, show_id, tmdb_id, &tmdb_show, api_key).await?;
-
-    recompute_show_status(&state.pool, show_id)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    load_show(&state.pool, show_id).await
+/// Shared by the single-show and refresh-all endpoints.
+async fn refresh_one(state: &AppState, show_id: i64, api_key: &str) -> ApiResult<Show> {
+    let tmdb_id = catalog::tmdb_id_of(&state.pool, show_id).await?;
+    let fetched = sync::fetch_show(&state.tmdb, tmdb_id, api_key).await?;
+    Ok(catalog::apply_refresh(&state.pool, show_id, &fetched).await?)
 }
 
 pub async fn delete_show(
     State(state): State<AppState>,
     Path(show_id): Path<i64>,
 ) -> ApiResult<StatusCode> {
-    sqlx::query("DELETE FROM shows WHERE id = ?")
-        .bind(show_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    catalog::delete(&state.pool, show_id).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Fetches season/episode detail for every season TMDB reports and upserts
-/// them into the DB. Preserves existing `watched` flags for episodes that
-/// already exist; new episodes default to unwatched.
-async fn fetch_and_store_seasons(
-    state: &AppState,
-    show_id: i64,
-    tmdb_id: i64,
-    tmdb_show: &crate::tmdb::TmdbShow,
-    api_key: &str,
-) -> ApiResult<()> {
-    for season_summary in &tmdb_show.seasons {
-        // TMDB includes "specials" as season_number 0; skip if you don't
-        // want those tracked. Here we keep them for completeness.
-        let season_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO seasons (show_id, tmdb_season_number, name, episode_count)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(show_id, tmdb_season_number)
-             DO UPDATE SET name = excluded.name, episode_count = excluded.episode_count
-             RETURNING id",
-        )
-        .bind(show_id)
-        .bind(season_summary.season_number)
-        .bind(&season_summary.name)
-        .bind(season_summary.episode_count)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        let season_detail = state
-            .tmdb
-            .get_season(tmdb_id, season_summary.season_number, api_key)
-            .await
-            .map_err(|e| err(StatusCode::BAD_GATEWAY, format!("TMDB error: {e}")))?;
-
-        for ep in &season_detail.episodes {
-            sqlx::query(
-                "INSERT INTO episodes (season_id, tmdb_episode_number, name, air_date, watched)
-                 VALUES (?, ?, ?, ?, 0)
-                 ON CONFLICT(season_id, tmdb_episode_number)
-                 DO UPDATE SET name = excluded.name, air_date = excluded.air_date",
-            )
-            .bind(season_id)
-            .bind(ep.episode_number)
-            .bind(&ep.name)
-            .bind(&ep.air_date)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        }
-    }
-
-    Ok(())
 }
 
 // ---------- episodes ----------
 
 // All three mutation endpoints below return the show row rather than the
-// thing they mutated. The client updates checkboxes optimistically - it
-// already knows what it clicked - but it cannot derive the show's category
-// locally, because `recompute_show_status` excludes specials and depends on
-// the raw TMDB status. Returning the recomputed row keeps that rule in one
-// place instead of mirroring it in the frontend.
+// thing they mutated, because the client cannot derive a Category itself.
+// See docs/adr/0001.
 
 pub async fn toggle_episode_watched(
     State(state): State<AppState>,
     Path(episode_id): Path<i64>,
 ) -> ApiResult<Json<Show>> {
-    let current: bool = sqlx::query_scalar("SELECT watched FROM episodes WHERE id = ?")
-        .bind(episode_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "episode not found"))?;
-
-    let new_watched = !current;
-    let watched_at = if new_watched {
-        Some(Utc::now().to_rfc3339())
-    } else {
-        None
-    };
-
-    sqlx::query("UPDATE episodes SET watched = ?, watched_at = ? WHERE id = ?")
-        .bind(new_watched)
-        .bind(&watched_at)
-        .bind(episode_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let show_id: i64 = sqlx::query_scalar(
-        "SELECT s.show_id FROM seasons s
-         JOIN episodes e ON e.season_id = s.id
-         WHERE e.id = ?",
-    )
-    .bind(episode_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    recompute_show_status(&state.pool, show_id)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(Json(load_show(&state.pool, show_id).await?))
+    Ok(Json(catalog::toggle_episode(&state.pool, episode_id).await?))
 }
 
 pub async fn mark_season_watched(
     State(state): State<AppState>,
     Path(season_id): Path<i64>,
 ) -> ApiResult<Json<Show>> {
-    // Resolve the season first so an unknown id is a 404 rather than a 500
-    // out of the status recompute further down.
-    let show_id: i64 = sqlx::query_scalar("SELECT show_id FROM seasons WHERE id = ?")
-        .bind(season_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "season not found"))?;
-
-    let now = Utc::now().to_rfc3339();
-
-    sqlx::query("UPDATE episodes SET watched = 1, watched_at = ? WHERE season_id = ?")
-        .bind(&now)
-        .bind(season_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    recompute_show_status(&state.pool, show_id)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(Json(load_show(&state.pool, show_id).await?))
+    Ok(Json(catalog::mark_season(&state.pool, season_id).await?))
 }
 
 pub async fn mark_show_watched(
     State(state): State<AppState>,
     Path(show_id): Path<i64>,
 ) -> ApiResult<Json<Show>> {
-    // Same reason as above: 404 before mutating anything.
-    load_show(&state.pool, show_id).await?;
-
-    let now = Utc::now().to_rfc3339();
-
-    sqlx::query(
-        "UPDATE episodes SET watched = 1, watched_at = ?
-         WHERE season_id IN (SELECT id FROM seasons WHERE show_id = ?)",
-    )
-    .bind(&now)
-    .bind(show_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    recompute_show_status(&state.pool, show_id)
-        .await
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(Json(load_show(&state.pool, show_id).await?))
+    Ok(Json(catalog::mark_show(&state.pool, show_id).await?))
 }
 
 // ---------- fallback ----------
 
 /// Catch-all for unmatched paths under `/api`. Without this, a typo'd
-/// endpoint falls through to the outer static-file fallback - which becomes
-/// actively misleading in stage 4, when that fallback starts serving
-/// index.html and a bad API path would return HTML with a 200.
-pub async fn api_not_found() -> (StatusCode, Json<serde_json::Value>) {
-    err(StatusCode::NOT_FOUND, "no such API endpoint")
+/// endpoint falls through to the outer static-file fallback, which serves
+/// index.html - so a bad API path would answer with HTML and a 200.
+pub async fn api_not_found() -> AppError {
+    AppError::NotFound("no such API endpoint")
 }

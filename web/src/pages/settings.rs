@@ -4,7 +4,7 @@ use leptos_router::components::A;
 use shared::{RefreshAllResponse, SetApiKeyRequest, SettingsResponse};
 
 use crate::api;
-use crate::components::{ErrorMsg, Topbar};
+use crate::components::{Message, Notice, Topbar};
 
 #[component]
 pub fn SettingsPage() -> impl IntoView {
@@ -44,14 +44,15 @@ pub fn SettingsPage() -> impl IntoView {
 #[component]
 fn AddKeyForm(on_saved: Callback<()>) -> impl IntoView {
     let input: NodeRef<html::Input> = NodeRef::new();
-    let error = RwSignal::new(None::<String>);
+    let message = RwSignal::new(None::<Message>);
 
     let save = Action::new_local(move |key: &String| {
         let key = key.clone();
         async move {
-            api::post_json::<_, serde_json::Value>("/settings/apikey", &SetApiKeyRequest {
-                api_key: key,
-            })
+            api::post_json::<_, serde_json::Value>(
+                "/settings/apikey",
+                &SetApiKeyRequest { api_key: key },
+            )
             .await
         }
     });
@@ -62,7 +63,7 @@ fn AddKeyForm(on_saved: Callback<()>) -> impl IntoView {
         if let Some(result) = save.value().get() {
             match result {
                 Ok(_) => on_saved.run(()),
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => message.set(Some(Message::error(e.to_string()))),
             }
         }
     });
@@ -71,10 +72,10 @@ fn AddKeyForm(on_saved: Callback<()>) -> impl IntoView {
         let value = input.get().map(|el| el.value()).unwrap_or_default();
         let key = value.trim().to_string();
         if key.is_empty() {
-            error.set(Some("Please enter an API key.".to_string()));
+            message.set(Some(Message::error("Please enter an API key.")));
             return;
         }
-        error.set(None);
+        message.set(None);
         save.dispatch(key);
     };
 
@@ -95,18 +96,18 @@ fn AddKeyForm(on_saved: Callback<()>) -> impl IntoView {
                 {move || if save.pending().get() { "Saving…" } else { "Save" }}
             </button>
         </div>
-        <ErrorMsg message=error/>
+        <Notice message=message/>
     }
 }
 
 /// Shown when a key is already stored.
 #[component]
 fn KeySet(masked: String, on_change: Callback<()>) -> impl IntoView {
-    let message = RwSignal::new(None::<(String, bool)>);
-    let refresh_btn: NodeRef<html::Button> = NodeRef::new();
+    let message = RwSignal::new(None::<Message>);
 
-    let refresh_all =
-        Action::new_local(|_: &()| async { api::post::<RefreshAllResponse>("/shows/refresh-all").await });
+    let refresh_all = Action::new_local(|_: &()| async {
+        api::post::<RefreshAllResponse>("/shows/refresh-all").await
+    });
 
     Effect::new(move |_| {
         if let Some(result) = refresh_all.value().get() {
@@ -120,13 +121,10 @@ fn KeySet(masked: String, on_change: Callback<()>) -> impl IntoView {
                     if r.failed != 0 {
                         parts.push(format!("{} failed.", r.failed));
                     }
-                    message.set(Some((parts.join(" "), false)));
+                    // Info, not Success: this line can carry failures.
+                    message.set(Some(Message::info(parts.join(" "))));
                 }
-                Err(e) => message.set(Some((e.to_string(), true))),
-            }
-            // Release the width lock taken below once the label is restored.
-            if let Some(el) = refresh_btn.get() {
-                let _ = web_sys::HtmlElement::style(&el).remove_property("min-width");
+                Err(e) => message.set(Some(Message::error(e.to_string()))),
             }
         }
     });
@@ -137,7 +135,7 @@ fn KeySet(masked: String, on_change: Callback<()>) -> impl IntoView {
         if let Some(result) = delete_key.value().get() {
             match result {
                 Ok(()) => on_change.run(()),
-                Err(e) => message.set(Some((e.to_string(), true))),
+                Err(e) => message.set(Some(Message::error(e.to_string()))),
             }
         }
     });
@@ -147,18 +145,12 @@ fn KeySet(masked: String, on_change: Callback<()>) -> impl IntoView {
         <label>"TMDB API Key"</label>
         <input type="text" value=masked disabled/>
         <div class="actions">
+            // `refresh-all` pins the width in CSS so swapping in the shorter
+            // "Refreshing…" label doesn't make the button shrink.
             <button
-                class="btn"
-                node_ref=refresh_btn
+                class="btn refresh-all"
                 disabled=move || refresh_all.pending().get()
                 on:click=move |_| {
-                    // Pin the current width so swapping in the shorter
-                    // "Refreshing…" label doesn't make the button shrink.
-                    if let Some(el) = refresh_btn.get() {
-                        let w = el.offset_width();
-                        let _ = web_sys::HtmlElement::style(&el)
-                            .set_property("min-width", &format!("{w}px"));
-                    }
                     message.set(None);
                     refresh_all.dispatch(());
                 }
@@ -185,12 +177,6 @@ fn KeySet(masked: String, on_change: Callback<()>) -> impl IntoView {
                 {move || if delete_key.pending().get() { "Deleting…" } else { "Delete API Key" }}
             </button>
         </div>
-        {move || {
-            message
-                .get()
-                .map(|(text, is_error)| {
-                    view! { <div class=if is_error { "msg error" } else { "msg" }>{text}</div> }
-                })
-        }}
+        <Notice message=message/>
     }
 }

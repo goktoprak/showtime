@@ -1,46 +1,40 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
-use shared::Show;
+use shared::{Show, ShowCategory};
+use std::collections::HashMap;
 
 use crate::api;
 use crate::components::Topbar;
 use crate::images::poster_url;
 
-const CATEGORIES: [(&str, &str); 4] = [
-    ("watching", "Watching"),
-    ("ongoing", "Ongoing"),
-    ("watchlist", "Watch List"),
-    ("finished", "Finished"),
-];
-
 const TAB_STORAGE_KEY: &str = "showtime_active_tab";
 
-/// Maps a show's stored status onto a dashboard category. Anything
-/// unrecognised lands in the watch list, matching the old
-/// `byCategory[s.status] || byCategory.watchlist` fallback.
-fn bucket(status: &str) -> &'static str {
-    match status {
-        "watching" => "watching",
-        "ongoing" => "ongoing",
-        "finished" => "finished",
-        _ => "watchlist",
-    }
-}
-
-fn stored_tab() -> String {
+/// The remembered tab, or Watching. Anything unparseable in local storage
+/// falls back rather than throwing the dashboard off.
+fn stored_tab() -> ShowCategory {
     window()
         .local_storage()
         .ok()
         .flatten()
         .and_then(|s| s.get_item(TAB_STORAGE_KEY).ok().flatten())
-        .filter(|t| CATEGORIES.iter().any(|(key, _)| key == t))
-        .unwrap_or_else(|| "watching".to_string())
+        .and_then(|t| ShowCategory::parse(&t))
+        .unwrap_or(ShowCategory::Watching)
 }
 
-fn store_tab(tab: &str) {
+fn store_tab(tab: ShowCategory) {
     if let Ok(Some(storage)) = window().local_storage() {
-        let _ = storage.set_item(TAB_STORAGE_KEY, tab);
+        let _ = storage.set_item(TAB_STORAGE_KEY, tab.as_str());
     }
+}
+
+/// Everything the dashboard knows about the show list, in one value. The page
+/// subscribes to the resource once, here, rather than in each thing that
+/// needs a different slice of it.
+#[derive(Clone, PartialEq)]
+enum LoadState {
+    Loading,
+    Failed(String),
+    Ready(HashMap<ShowCategory, Vec<Show>>),
 }
 
 #[component]
@@ -48,63 +42,56 @@ pub fn IndexPage() -> impl IntoView {
     let shows = LocalResource::new(|| async { api::get::<Vec<Show>>("/shows").await });
     let active_tab = RwSignal::new(stored_tab());
 
-    // Everything below derives from this one memo, so a refetch that returns
-    // an identical list re-renders nothing.
-    let all = Memo::new(move |_| shows.get().and_then(|r| r.ok()).unwrap_or_default());
-    let load_error = Memo::new(move |_| match shows.get() {
-        Some(Err(e)) => Some(e.to_string()),
-        _ => None,
+    let state = Memo::new(move |_| match shows.get() {
+        None => LoadState::Loading,
+        Some(Err(e)) => LoadState::Failed(e.to_string()),
+        Some(Ok(list)) => {
+            let mut by_category: HashMap<ShowCategory, Vec<Show>> = HashMap::new();
+            for show in list {
+                by_category.entry(show.category).or_default().push(show);
+            }
+            LoadState::Ready(by_category)
+        }
     });
 
-    let in_category = move |key: &'static str| {
-        Memo::new(move |_| {
-            all.get()
-                .into_iter()
-                .filter(|s| bucket(&s.status) == key)
-                .collect::<Vec<_>>()
+    let in_tab = move |tab: ShowCategory| {
+        state.with(|s| match s {
+            LoadState::Ready(by_category) => by_category.get(&tab).cloned().unwrap_or_default(),
+            _ => Vec::new(),
         })
     };
-    let watching = in_category("watching");
-    let ongoing = in_category("ongoing");
-    let watchlist = in_category("watchlist");
-    let finished = in_category("finished");
-
-    let for_key = move |key: &str| match key {
-        "watching" => watching.get(),
-        "ongoing" => ongoing.get(),
-        "finished" => finished.get(),
-        _ => watchlist.get(),
+    let count_of = move |tab: ShowCategory| {
+        state.with(|s| match s {
+            LoadState::Ready(by_category) => by_category.get(&tab).map_or(0, |v| v.len()),
+            _ => 0,
+        })
     };
-    let count_for = move |key: &str| match key {
-        "watching" => watching.read().len(),
-        "ongoing" => ongoing.read().len(),
-        "finished" => finished.read().len(),
-        _ => watchlist.read().len(),
+    let has_shows = move || {
+        state.with(|s| match s {
+            LoadState::Ready(by_category) => !by_category.is_empty(),
+            _ => false,
+        })
     };
-
-    let has_shows = move || !all.read().is_empty();
-    let active_label =
-        move || CATEGORIES.iter().find(|(k, _)| *k == active_tab.get()).map(|(_, l)| *l).unwrap_or("this category");
 
     view! {
         <Topbar left=move || {
             view! {
                 <Show when=has_shows fallback=|| ()>
                     <div class="tabs">
-                        {CATEGORIES
-                            .iter()
-                            .map(|(key, label)| {
+                        {ShowCategory::ALL
+                            .into_iter()
+                            .map(|category| {
                                 view! {
                                     <button
                                         class="tab-btn"
-                                        class:active=move || active_tab.get() == *key
+                                        class:active=move || active_tab.get() == category
                                         on:click=move |_| {
-                                            active_tab.set(key.to_string());
-                                            store_tab(key);
+                                            active_tab.set(category);
+                                            store_tab(category);
                                         }
                                     >
-                                        {*label}
-                                        <span class="count">{move || count_for(key)}</span>
+                                        {category.label()}
+                                        <span class="count">{move || count_of(category)}</span>
                                     </button>
                                 }
                             })
@@ -118,40 +105,42 @@ pub fn IndexPage() -> impl IntoView {
         </Topbar>
         <main>
             {move || {
-                if let Some(e) = load_error.get() {
-                    return view! {
-                        <div class="empty-state">{format!("Failed to load shows: {e}")}</div>
+                match state.get() {
+                    LoadState::Loading => {
+                        view! { <div class="loading">"Loading shows…"</div> }.into_any()
                     }
-                        .into_any();
-                }
-                if shows.get().is_none() {
-                    return view! { <div class="loading">"Loading shows…"</div> }.into_any();
-                }
-                if !has_shows() {
-                    return view! {
-                        <div class="empty-state">
-                            "No shows yet. Click \"+ Add Show\" to get started."
-                        </div>
+                    LoadState::Failed(e) => {
+                        view! { <div class="empty-state">{format!("Failed to load shows: {e}")}</div> }
+                            .into_any()
                     }
-                        .into_any();
-                }
-                let list = for_key(&active_tab.get());
-                if list.is_empty() {
-                    return view! {
-                        <div class="empty-state">
-                            {format!("Nothing in {} yet.", active_label())}
-                        </div>
+                    LoadState::Ready(by_category) if by_category.is_empty() => {
+                        view! {
+                            <div class="empty-state">
+                                "No shows yet. Click \"+ Add Show\" to get started."
+                            </div>
+                        }
+                            .into_any()
                     }
-                        .into_any();
+                    LoadState::Ready(_) => {
+                        let tab = active_tab.get();
+                        if count_of(tab) == 0 {
+                            return view! {
+                                <div class="empty-state">
+                                    {format!("Nothing in {} yet.", tab.label())}
+                                </div>
+                            }
+                                .into_any();
+                        }
+                        view! {
+                            <div class="grid">
+                                <For each=move || in_tab(active_tab.get()) key=|s| s.id let:show>
+                                    <ShowCard show=show/>
+                                </For>
+                            </div>
+                        }
+                            .into_any()
+                    }
                 }
-                view! {
-                    <div class="grid">
-                        <For each=move || for_key(&active_tab.get()) key=|s| s.id let:show>
-                            <ShowCard show=show/>
-                        </For>
-                    </div>
-                }
-                    .into_any()
             }}
         </main>
     }
