@@ -1,0 +1,20 @@
+[build]
+target = "index.html"
+# Output to the repo root rather than web/dist, so the server's ServeDir and
+# the Dockerfile both see a single top-level `dist/`.
+dist = "../dist"
+
+[watch]
+# shared/ is watched too: a change to a wire type should rebuild the client
+# that deserializes it.
+watch = ["src", "styles", "index.html", "../shared/src"]
+
+[serve]
+port = 8080
+open = false
+
+# Dev only. `trunk serve` hosts the UI on :8080 and forwards /api to the
+# server running separately on :3000, which keeps the browser same-origin
+# and means no CORS layer is needed on either side.
+[[proxy]]
+backend = "http://127.0.0.1:3000/api"

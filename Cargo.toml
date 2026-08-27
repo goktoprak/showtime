@@ -1,9 +1,9 @@
-# `web` deliberately joins this workspace in stage 4 of the migration, not
-# now: a Leptos CSR crate can't be built for the host target, so listing it
-# here would break `cargo build` at the root. When it's added it goes in
-# `members` with `default-members` kept as the two native crates.
 [workspace]
-members = ["shared", "server"]
+members = ["shared", "server", "web"]
+# `web` is a wasm-only crate and cannot be built for the host target, so a
+# bare `cargo build` / `cargo test` at the root must skip it. Build it with
+# trunk, or with `cargo build -p web --target wasm32-unknown-unknown`.
+default-members = ["shared", "server"]
 resolver = "2"
 
 [workspace.package]
