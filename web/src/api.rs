@@ -1,5 +1,5 @@
-//! Thin wrapper over the JSON API, replacing the `api()` helper that used to
-//! live in static/app.js.
+//! Thin wrapper over the JSON API, replacing the `api()` helper that the
+//! previous plain-JS frontend kept in app.js.
 //!
 //! Error handling mirrors what that helper did: on a non-2xx response, use
 //! the `error` field from the JSON body if there is one, and otherwise fall

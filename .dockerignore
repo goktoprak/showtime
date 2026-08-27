@@ -4,3 +4,4 @@ showtime.db-*
 .git
 .gitignore
 README.md
+dist

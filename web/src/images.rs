@@ -1,5 +1,6 @@
-//! TMDB image URL builders, ported from static/app.js. TMDB returns bare
-//! path fragments; the size segment is chosen per use site.
+//! TMDB image URL builders, carried over from the previous plain-JS
+//! frontend. TMDB returns bare path fragments; the size segment is chosen
+//! per use site.
 
 pub fn poster_url(path: &Option<String>) -> Option<String> {
     path.as_ref()

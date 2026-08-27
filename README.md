@@ -1,61 +1,30 @@
 # ShowTime
 
-A local, personal-use TV show/episode tracker. Rust backend (Axum + SQLite),
-plain HTML/CSS/JS frontend, TMDB for metadata.
-
-## Requirements
-
-- Rust (stable) + Cargo — install via https://rustup.rs if you don't have it
-- A free TMDB API key — https://www.themoviedb.org/settings/api
-
-No Node, no build step for the frontend — it's static files served directly
-by the Rust binary.
-
-## Running it
-
-```bash
-cd showtime
-cargo run
-```
-
-First run will:
-- Create `showtime.db` in the current directory (SQLite file)
-- Run migrations automatically to set up the schema
-- Start the server at http://127.0.0.1:3000
-
-Open that URL in your browser. Go to **Settings** first and paste in your
-TMDB API key — it's stored in the `settings` table in `showtime.db`. Nothing
-is sent anywhere except to `api.themoviedb.org`.
-
-Then use **+ Add Show**, enter a TMDB TV show ID (the number in a show's URL
-on themoviedb.org, e.g. `1399` for Game of Thrones), and it'll pull in the
-show, all seasons, and all episodes.
+A local, personal-use TV show/episode tracker. Rust throughout: an Axum +
+SQLite backend and a Leptos frontend compiled to WebAssembly, with TMDB for
+metadata. Nothing is sent anywhere except to `api.themoviedb.org`.
 
 ## Running it with Docker (recommended for a home server)
 
 This is the easiest way to deploy ShowTime on a home server (Synology,
-Unraid, a Raspberry Pi, a spare Linux box, etc.) — the image is built
-automatically by GitHub Actions and published to GHCR (GitHub Container
-Registry) on every push to `main`. Your server never needs Rust, Cargo, or
-even a clone of this repo — just Docker, pulling a ready-made image.
+Unraid, a Raspberry Pi, a spare Linux box). The image is built by GitHub
+Actions and published to GHCR on every push to `main`, so your server never
+needs Rust, Cargo, or a clone of this repo — just Docker.
 
 The image lives at `ghcr.io/goktoprak/showtime`, built by the workflow in
-`.github/workflows/docker-publish.yml`. It's tagged `latest` (always tracks
-the most recent push) and also `sha-<commit>` (a pinned snapshot of a
-specific commit, useful for rolling back).
+`.github/workflows/docker-publish.yml`. It's tagged `latest` (always the most
+recent push) and `sha-<commit>` (a pinned snapshot, useful for rolling back).
 
-**One-time setup:** the package needs to be public (or you need to log in
-with a GitHub token on the server) the first time, since new GHCR packages
-default to private. After the first successful workflow run, go to
-`github.com/goktoprak/showtime` → **Packages** (right sidebar) → click the
-`showtime` package → **Package settings** → change visibility to Public.
-Skip this if you're fine authenticating `docker login ghcr.io` on the
-server instead (see below).
+**One-time setup:** the package needs to be public, or you need to log in
+with a GitHub token on the server, since new GHCR packages default to
+private. After the first successful workflow run, go to
+`github.com/goktoprak/showtime` → **Packages** → the `showtime` package →
+**Package settings** → change visibility to Public. Skip this if you'd rather
+authenticate on the server (see below).
 
 ### Using Docker Compose (simplest)
 
-On the server, you only need the `docker-compose.yml` file — not the whole
-repo:
+On the server you only need `docker-compose.yml`, not the whole repo:
 
 ```bash
 mkdir showtime && cd showtime
@@ -63,27 +32,22 @@ curl -O https://raw.githubusercontent.com/goktoprak/showtime/main/docker-compose
 docker compose up -d
 ```
 
-This pulls the pre-built image and starts the container in the background,
-exposing it on port 3000 and persisting the SQLite database in a named
-Docker volume (`showtime_data`) so your shows and watched progress survive
-container restarts and updates.
+This pulls the pre-built image, exposes it on port 3000, and persists the
+SQLite database in a named volume (`showtime_data`) so your shows and watched
+progress survive restarts and updates.
 
 Visit `http://<your-server-ip>:3000` from any device on your network.
 
-To stop it:
-```bash
-docker compose down
-```
-(this does **not** delete the volume, so your data is safe — only
-`docker compose down -v` would remove the volume too)
+Stop it with `docker compose down` — this does **not** delete the volume, so
+your data is safe. Only `docker compose down -v` would remove it.
 
-To update to the latest pushed image:
+Update with:
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-### Using plain Docker (no Compose, no files needed at all)
+### Using plain Docker
 
 ```bash
 docker run -d \
@@ -94,107 +58,206 @@ docker run -d \
   ghcr.io/goktoprak/showtime:latest
 ```
 
-To update:
-```bash
-docker pull ghcr.io/goktoprak/showtime:latest
-docker stop showtime && docker rm showtime
-# then re-run the docker run command above
-```
+To update: `docker pull ghcr.io/goktoprak/showtime:latest`, then
+`docker stop showtime && docker rm showtime`, then re-run the above.
 
-### If the package is private instead of public
+### If the package is private
 
-Log in on the server once with a GitHub Personal Access Token that has
-`read:packages` scope:
+Log in on the server once with a token that has `read:packages` scope:
 ```bash
 docker login ghcr.io -u goktoprak
-# paste the token when prompted for a password
 ```
-Docker remembers this login, so subsequent `pull`/`compose up` commands
-work without repeating it.
+Docker remembers this, so later `pull`/`compose up` commands just work.
 
 ### Changing the port
 
-If 3000 is already used by something else on your server, change the left
-side of the port mapping — e.g. in `docker-compose.yml` change
-`"3000:3000"` to `"8080:3000"`, or with plain `docker run` change
-`-p 3000:3000` to `-p 8080:3000`. The app always listens on 3000 *inside*
-the container; only the host-side port changes.
+Change the left side of the port mapping — `"8080:3000"` in
+`docker-compose.yml`, or `-p 8080:3000` with plain `docker run`. The app
+always listens on 3000 *inside* the container.
 
-### Backing up your data
+## First run
 
-The SQLite database (including your TMDB API key and all show/episode
-progress) lives entirely inside the `showtime_data` Docker volume. To back
-it up:
-```bash
-docker run --rm -v showtime_data:/data -v $(pwd):/backup debian \
-  cp /data/showtime.db /backup/showtime-backup.db
-```
+Open the app, go to **Settings**, and paste in a free TMDB API key
+(https://www.themoviedb.org/settings/api). It's stored in the `settings`
+table in the database.
+
+Then use **+ Add Show** and enter a TMDB TV show ID — the number in a show's
+URL on themoviedb.org, e.g. `1399` for
+`themoviedb.org/tv/1399-game-of-thrones`. That pulls in the show, all
+seasons, and all episodes.
 
 ## How categories work
 
 - **Watch List** — show added, nothing marked watched yet
 - **Watching** — at least one episode watched, but not all of them
-- **Ongoing** — every currently-known episode watched, and TMDB reports
-  the show is still airing/in production/planned
+- **Ongoing** — every currently-known episode watched, and TMDB reports the
+  show is still airing/in production/planned
 - **Finished** — every currently-known episode watched, and TMDB reports the
   show has ended or been canceled
 
 If a show is `Ongoing` or `Finished` and you hit **Refresh Metadata** and
-TMDB has added new episodes/seasons since you last checked, it automatically
-drops back to `Watching` (since not everything is watched anymore).
+TMDB has added episodes since you last checked, it drops back to `Watching`
+automatically, since not everything is watched anymore.
 
-Nothing refreshes automatically — episode/season data is only ever re-pulled
-from TMDB when you click **Refresh Metadata** on a show's page, or when a
-show is first added.
+**Specials** (TMDB season 0) are excluded from these rules entirely. They're
+stored, shown, and individually checkable, but whether they're watched has no
+bearing on the category — a show with every regular episode watched counts as
+Ongoing or Finished even with unwatched specials.
+
+Nothing refreshes automatically. Episode and season data is only re-pulled
+when you click **Refresh Metadata** on a show, use **Refresh All Shows** in
+Settings, or add a show for the first time.
+
+## Backing up your data
+
+The database — TMDB key, shows, and all watched progress — is a single SQLite
+file. Two ways to get a copy:
+
+- **From the app:** Settings → **Download Backup**. This streams a consistent
+  snapshot taken with `VACUUM INTO`, so it's safe even with uncheckpointed
+  WAL writes.
+- **From the volume:**
+  ```bash
+  docker run --rm -v showtime_data:/data -v $(pwd):/backup debian \
+    cp /data/showtime.db /backup/showtime-backup.db
+  ```
+
+## Resetting data
+
+Delete `showtime.db` (and any `showtime.db-shm` / `showtime.db-wal` files
+beside it) and restart. A fresh empty database is created on boot.
+
+---
+
+# Development
+
+The frontend is Rust compiled to WebAssembly, so unlike earlier versions of
+this project there is now a build step. **This changes nothing for people
+running the Docker image** — it's entirely a contributor concern.
+
+## Requirements
+
+- Rust (stable) + Cargo — https://rustup.rs
+- The wasm target: `rustup target add wasm32-unknown-unknown`
+- [Trunk](https://trunkrs.dev), which bundles the frontend
+
+Install Trunk from its **prebuilt binary**, not from source:
+
+```bash
+# macOS arm64; substitute your platform's asset name
+curl -sSL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-aarch64-apple-darwin.tar.gz \
+  | tar -xzf - -C ~/.cargo/bin trunk
+```
+
+`cargo install trunk` currently fails on recent toolchains — its
+`lightningcss` dependency doesn't compile. The Dockerfile downloads the
+prebuilt binary for the same reason.
+
+No Node required.
+
+## Running it locally
+
+Two processes. Trunk serves the UI with rebuild-on-save and proxies `/api` to
+the backend, which keeps the browser same-origin so no CORS layer is needed:
+
+```bash
+# terminal 1 — API on :3000
+cargo run -p showtime
+
+# terminal 2 — UI on :8080, proxying /api to :3000
+cd web && trunk serve
+```
+
+Then open http://localhost:8080.
+
+To run the way production does — one process, backend serving the built
+bundle:
+
+```bash
+cd web && trunk build --release && cd ..
+cargo run -p showtime --release
+```
+
+Then open http://localhost:3000. Run this from the repository root: the
+server resolves `dist/` relative to the working directory.
+
+The database is created at `./showtime.db` on first run, unless
+`SHOWTIME_DB` says otherwise. `SHOWTIME_BIND` overrides the listen address
+(default `0.0.0.0:3000`).
+
+## Tests
+
+```bash
+cargo test
+```
+
+This covers the category rules in `server/src/status.rs` against an
+in-memory SQLite database, plus the pure helpers in `shared`.
+
+Use plain `cargo test`, not `cargo test --workspace`. The `--workspace` flag
+overrides `default-members` and compiles `web` for the host target too — it
+succeeds, but produces a binary that can't run and roughly doubles the build
+for no benefit.
+
+## Building the crates directly
+
+`web` is a workspace member but **not** a default member, so a bare
+`cargo build` or `cargo test` at the root skips it. That's a deliberate
+convenience rather than a hard constraint: it *can* be compiled for the host,
+since web-sys and wasm-bindgen build natively, but the binary it produces has
+no DOM to mount into. To build it for real:
+
+```bash
+cargo build -p web --target wasm32-unknown-unknown
+```
 
 ## Project layout
 
 ```
 showtime/
-├── Cargo.toml
-├── Dockerfile
+├── Cargo.toml                  -- workspace; resolver 2, default-members
+├── Dockerfile                  -- cargo-chef; parallel native + wasm builders
 ├── docker-compose.yml
-├── .dockerignore
-├── .github/
-│   └── workflows/
-│       └── docker-publish.yml  -- builds & pushes image to GHCR on push
 ├── migrations/
-│   └── 0001_init.sql       -- SQLite schema
-├── src/
-│   ├── main.rs              -- server setup, routes
-│   ├── models.rs             -- DB row structs / request-response types
-│   ├── db.rs                  -- connection pool + migrations
-│   ├── tmdb.rs                 -- TMDB API client
-│   ├── status.rs                -- category recompute logic
-│   └── handlers.rs               -- all HTTP handlers
-└── static/
-    ├── index.html            -- dashboard (4 category grids)
-    ├── add.html                -- add-show-by-id form
-    ├── show.html                 -- show detail: banner, seasons, episodes
-    ├── settings.html               -- API key form
-    ├── style.css
-    └── app.js
+│   └── 0001_init.sql           -- SQLite schema
+├── shared/                     -- types on the wire, used by both sides
+│   └── src/lib.rs
+├── server/
+│   └── src/
+│       ├── main.rs             -- routes, static serving, cache headers
+│       ├── db.rs               -- pool + migrations
+│       ├── tmdb.rs             -- TMDB client
+│       ├── status.rs           -- category rules (+ tests)
+│       └── handlers.rs         -- HTTP handlers
+└── web/
+    ├── Trunk.toml              -- build config + dev proxy
+    ├── index.html              -- Trunk entrypoint
+    ├── styles/style.css
+    └── src/
+        ├── main.rs             -- router
+        ├── api.rs              -- fetch wrapper
+        ├── images.rs           -- TMDB image URLs
+        ├── components/         -- Topbar, ErrorMsg
+        └── pages/              -- dashboard, show, add, settings, 404
 ```
 
-## Notes / things to double check on first run
+## Notes on the design
 
-I wrote this without a local Rust toolchain to compile against, so while
-I've reviewed it carefully, there's a nonzero chance of a small compile
-error on first `cargo build`. If you hit one:
+**Types are shared, not duplicated.** `shared` holds every type that crosses
+the wire. Its `sqlx::FromRow` derives are gated behind an `ssr` feature that
+only the server enables, since sqlx doesn't build for wasm. Renaming a field
+is a compile error in the UI rather than a silent `undefined` in the browser.
 
-- Most likely spot: a `sqlx` query macro/type mismatch — all queries here
-  use runtime-checked `sqlx::query`/`query_as`/`query_scalar` (not the
-  compile-time `query!` macros), specifically so this doesn't require a
-  live DB connection at compile time.
-- `libsqlite3-sys` is pinned to `bundled` in Cargo.toml so it compiles its
-  own recent SQLite rather than relying on your system's, since the schema
-  uses `RETURNING` (needs SQLite 3.35+).
-- If you get a port-in-use error, something else is already on 3000 —
-  change the bind address in `src/main.rs` (`main()`, near the bottom).
+**The client never computes a show's category.** Every mutation endpoint
+returns the recomputed show row. The rules exclude specials and depend on the
+raw TMDB status, so mirroring them in the frontend would mean two places to
+get them wrong.
 
-Feel free to paste any compiler error back to me and I'll fix it directly.
+**Mutations are optimistic with rollback.** Ticking an episode updates local
+state immediately and reverts the whole detail if the request fails.
+Refreshing metadata is deliberately *not* optimistic — it can add entire
+seasons, so that data has to come from the server.
 
-## Resetting data
-
-Just delete `showtime.db` (and any `showtime.db-shm` / `showtime.db-wal`
-files next to it) and restart — a fresh empty DB will be created.
+**Caching is split.** Everything Trunk emits except `index.html` is
+content-hashed, so it's served `immutable` with a one-year max-age.
+`index.html` and the whole API are `no-store`.

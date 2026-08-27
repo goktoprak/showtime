@@ -2,9 +2,9 @@ use serde::Deserialize;
 
 const BASE_URL: &str = "https://api.themoviedb.org/3";
 
-// Image base URL is used on the frontend (static/app.js) to build poster
-// and backdrop URLs directly from the path fragments TMDB returns, so it's
-// not needed here on the backend.
+// Image base URL is used on the frontend (web/src/images.rs) to build
+// poster and backdrop URLs directly from the path fragments TMDB returns,
+// so it's not needed here on the backend.
 
 #[derive(Debug, thiserror::Error)]
 pub enum TmdbError {

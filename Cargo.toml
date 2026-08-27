@@ -1,8 +1,10 @@
 [workspace]
 members = ["shared", "server", "web"]
-# `web` is a wasm-only crate and cannot be built for the host target, so a
-# bare `cargo build` / `cargo test` at the root must skip it. Build it with
-# trunk, or with `cargo build -p web --target wasm32-unknown-unknown`.
+# `web` is kept out of the default set. It does compile for the host target -
+# web-sys and wasm-bindgen build natively - but the resulting binary cannot
+# run without a DOM, so building it there is pure cost. Build it with trunk,
+# or with `cargo build -p web --target wasm32-unknown-unknown`.
+# Note that `--workspace` overrides this and will build it for the host.
 default-members = ["shared", "server"]
 resolver = "2"
 
