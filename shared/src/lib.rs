@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
 pub struct Show {
     pub id: i64,
@@ -23,7 +23,7 @@ pub struct Show {
     pub last_refreshed_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
 pub struct Season {
     pub id: i64,
@@ -33,7 +33,7 @@ pub struct Season {
     pub episode_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
 pub struct Episode {
     pub id: i64,
@@ -45,36 +45,43 @@ pub struct Episode {
     pub watched_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SeasonWithEpisodes {
     pub season: Season,
     pub episodes: Vec<Episode>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShowDetail {
     #[serde(flatten)]
     pub show: Show,
     pub seasons: Vec<SeasonWithEpisodes>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AddShowRequest {
     pub tmdb_id: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetApiKeyRequest {
     pub api_key: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingsResponse {
     pub has_api_key: bool,
     /// A masked preview of the stored key (e.g. "************af92"),
     /// safe to show in the UI. The real key is never sent back to the
     /// frontend after it's saved.
     pub masked_key: Option<String>,
+}
+
+/// Result of refreshing every tracked show in one go.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RefreshAllResponse {
+    pub refreshed: i64,
+    pub failed: i64,
 }
 
 /// Builds a masked display version of an API key: all but the last 4

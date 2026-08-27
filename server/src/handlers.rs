@@ -9,8 +9,8 @@ use serde_json::json;
 use sqlx::SqlitePool;
 
 use shared::{
-    AddShowRequest, Episode, Season, SeasonWithEpisodes, SetApiKeyRequest, SettingsResponse, Show,
-    ShowDetail,
+    AddShowRequest, Episode, RefreshAllResponse, Season, SeasonWithEpisodes, SetApiKeyRequest,
+    SettingsResponse, Show, ShowDetail,
 };
 
 use crate::{db, status::recompute_show_status, AppState};
@@ -225,7 +225,7 @@ pub async fn refresh_show(
 
 pub async fn refresh_all_shows(
     State(state): State<AppState>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<RefreshAllResponse>> {
     let api_key = db::get_api_key(&state.pool)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -236,8 +236,8 @@ pub async fn refresh_all_shows(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let mut refreshed = 0;
-    let mut failed = 0;
+    let mut refreshed = 0i64;
+    let mut failed = 0i64;
     for show_id in show_ids {
         match refresh_show_by_id(&state, show_id, &api_key).await {
             Ok(_) => refreshed += 1,
@@ -245,7 +245,7 @@ pub async fn refresh_all_shows(
         }
     }
 
-    Ok(Json(json!({ "refreshed": refreshed, "failed": failed })))
+    Ok(Json(RefreshAllResponse { refreshed, failed }))
 }
 
 /// Re-fetches a single show (plus all its seasons/episodes) from TMDB and
