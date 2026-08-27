@@ -172,7 +172,8 @@ fn SeasonPanel(store: DetailStore, season_id: i64) -> impl IntoView {
 
 #[component]
 fn EpisodeRow(store: DetailStore, episode_id: i64) -> impl IntoView {
-    let watched = Memo::new(move |_| store.with(|i| i.episode(episode_id).is_some_and(|e| e.watched)));
+    let watched =
+        Memo::new(move |_| store.with(|i| i.episode(episode_id).is_some_and(|e| e.watched)));
     let number = Memo::new(move |_| {
         store.with(|i| {
             i.episode(episode_id)

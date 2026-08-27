@@ -9,8 +9,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Which shelf a Show currently sits on. Always derived from watched
-/// progress and the show's production status, never chosen by the user -
-/// see `docs/adr/0001`.
+/// progress and the show's production status, never chosen by the user, and
+/// only ever computed on the server.
 ///
 /// Serialises and stores as the same lowercase strings this was before it
 /// was a type (`"watchlist"`, `"watching"`, ...), so neither the wire format

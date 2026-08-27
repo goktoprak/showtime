@@ -1,6 +1,6 @@
 //! Reading a show's metadata out of TMDB and into the shape the catalog
-//! writes. The catalog never calls TMDB itself (`docs/adr/0003`), so this is
-//! where the two meet.
+//! writes. The catalog never calls TMDB itself, so this is where the two
+//! meet.
 
 use futures::stream::{self, StreamExt, TryStreamExt};
 

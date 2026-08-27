@@ -1,6 +1,6 @@
 //! Deriving a Show's Category. Private to the catalog: a Category is never
 //! assigned from outside, only recomputed from Progress and Production
-//! Status - see `docs/adr/0001`.
+//! Status.
 
 use sqlx::SqliteConnection;
 
@@ -20,8 +20,11 @@ use shared::{tmdb_status_is_airing, ShowCategory};
 ///     episodes (e.g. a new season dropped) falls back to Watching
 ///     automatically, since the rule above already produces that result.
 ///
-/// Specials (TMDB season_number 0) are excluded from these counts entirely -
-/// see `docs/adr/0002`.
+/// Specials (TMDB season_number 0) are excluded from these counts entirely.
+/// TMDB files a large and unstable set of shorts, recaps and clips under
+/// season 0, so counting them would hold shows in Watching indefinitely and
+/// reclassify them whenever TMDB adds one. They are still stored, shown and
+/// individually markable - they just don't decide the Category.
 ///
 /// Takes a connection rather than a pool so it can run inside the same
 /// transaction as the mutation that triggered it; otherwise the count it

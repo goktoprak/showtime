@@ -1,6 +1,6 @@
 //! Everything that reads or writes tracked Shows, Seasons, Episodes and
 //! Category. Takes a pool, opens its own transactions, and knows nothing
-//! about HTTP or TMDB - see `docs/adr/0003`.
+//! about HTTP or TMDB.
 //!
 //! Not calling TMDB is the load-bearing constraint: it means every operation
 //! here is exercisable against an in-memory database, which is what makes the

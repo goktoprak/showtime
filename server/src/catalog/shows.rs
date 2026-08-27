@@ -53,7 +53,10 @@ pub async fn detail(pool: &SqlitePool, show_id: i64) -> Result<ShowDetail> {
     let mut by_season: std::collections::HashMap<i64, Vec<Episode>> =
         std::collections::HashMap::new();
     for episode in episodes {
-        by_season.entry(episode.season_id).or_default().push(episode);
+        by_season
+            .entry(episode.season_id)
+            .or_default()
+            .push(episode);
     }
 
     let seasons = seasons

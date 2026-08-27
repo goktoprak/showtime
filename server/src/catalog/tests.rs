@@ -61,14 +61,12 @@ async fn add_season(pool: &SqlitePool, show_id: i64, number: i64, episodes: i64)
 
 /// Marks the first `count` episodes of a season watched.
 async fn watch(pool: &SqlitePool, season_id: i64, count: i64) {
-    sqlx::query(
-        "UPDATE episodes SET watched = 1 WHERE season_id = ? AND tmdb_episode_number <= ?",
-    )
-    .bind(season_id)
-    .bind(count)
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE episodes SET watched = 1 WHERE season_id = ? AND tmdb_episode_number <= ?")
+        .bind(season_id)
+        .bind(count)
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 async fn category_of(pool: &SqlitePool, show_id: i64) -> ShowCategory {
@@ -405,7 +403,10 @@ async fn inserting_a_fetched_show_writes_every_season_and_episode() {
 
     let show = insert_show(
         &pool,
-        &fetched("Returning Series", vec![fetched_season(1, 3), fetched_season(2, 2)]),
+        &fetched(
+            "Returning Series",
+            vec![fetched_season(1, 3), fetched_season(2, 2)],
+        ),
     )
     .await
     .unwrap();
@@ -420,9 +421,12 @@ async fn inserting_a_fetched_show_writes_every_season_and_episode() {
 #[tokio::test]
 async fn a_refresh_preserves_watched_marks_and_adds_new_episodes() {
     let pool = test_pool().await;
-    let show = insert_show(&pool, &fetched("Returning Series", vec![fetched_season(1, 2)]))
-        .await
-        .unwrap();
+    let show = insert_show(
+        &pool,
+        &fetched("Returning Series", vec![fetched_season(1, 2)]),
+    )
+    .await
+    .unwrap();
 
     let season = detail(&pool, show.id).await.unwrap().seasons[0].season.id;
     let marked = mark_season(&pool, season).await.unwrap();

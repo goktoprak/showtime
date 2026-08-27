@@ -27,6 +27,9 @@ pub async fn clear_api_key(pool: &SqlitePool) -> Result<()> {
 /// Writes a consistent copy of the whole database to `path` via `VACUUM
 /// INTO`, which is safe even with uncheckpointed WAL writes outstanding.
 pub async fn snapshot(pool: &SqlitePool, path: &str) -> Result<()> {
-    sqlx::query("VACUUM INTO ?").bind(path).execute(pool).await?;
+    sqlx::query("VACUUM INTO ?")
+        .bind(path)
+        .execute(pool)
+        .await?;
     Ok(())
 }

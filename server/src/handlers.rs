@@ -108,7 +108,8 @@ pub async fn add_show(
     State(state): State<AppState>,
     Json(req): Json<AddShowRequest>,
 ) -> ApiResult<Json<Show>> {
-    let api_key = require_api_key(&state, "no TMDB API key set - add one in Settings first").await?;
+    let api_key =
+        require_api_key(&state, "no TMDB API key set - add one in Settings first").await?;
 
     if catalog::is_tracked(&state.pool, req.tmdb_id).await? {
         return Err(AppError::Conflict("show already tracked".into()));
@@ -166,14 +167,19 @@ pub async fn delete_show(
 // ---------- episodes ----------
 
 // All three mutation endpoints below return the show row rather than the
-// thing they mutated, because the client cannot derive a Category itself.
-// See docs/adr/0001.
+// thing they mutated. The client updates checkboxes optimistically - it
+// already knows what it clicked - but it cannot derive the show's Category
+// locally, because that rule excludes specials and depends on the raw TMDB
+// production status. Returning the recomputed row keeps the rule in one
+// place instead of mirroring it in the frontend.
 
 pub async fn toggle_episode_watched(
     State(state): State<AppState>,
     Path(episode_id): Path<i64>,
 ) -> ApiResult<Json<Show>> {
-    Ok(Json(catalog::toggle_episode(&state.pool, episode_id).await?))
+    Ok(Json(
+        catalog::toggle_episode(&state.pool, episode_id).await?,
+    ))
 }
 
 pub async fn mark_season_watched(

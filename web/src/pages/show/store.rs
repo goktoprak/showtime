@@ -73,7 +73,12 @@ impl DetailIndex {
     /// (watched, total) for one season.
     pub fn season_progress(&self, season_id: i64) -> (usize, usize) {
         self.season(season_id)
-            .map(|s| (s.episodes.iter().filter(|e| e.watched).count(), s.episodes.len()))
+            .map(|s| {
+                (
+                    s.episodes.iter().filter(|e| e.watched).count(),
+                    s.episodes.len(),
+                )
+            })
             .unwrap_or((0, 0))
     }
 
@@ -121,7 +126,8 @@ impl DetailIndex {
     }
 
     /// Takes the recomputed show row a mutation answered with. The category
-    /// can only come from the server - see `docs/adr/0001`.
+    /// can only come from the server, which excludes specials from the counts
+    /// and keys off the raw TMDB production status.
     fn set_show(&mut self, show: Show) {
         self.detail.show = show;
     }
@@ -293,7 +299,11 @@ mod tests {
 
     fn sample() -> DetailIndex {
         DetailIndex::new(detail(vec![
-            (10, Some("One"), vec![episode(100, 1, true), episode(101, 2, false)]),
+            (
+                10,
+                Some("One"),
+                vec![episode(100, 1, true), episode(101, 2, false)],
+            ),
             (20, None, vec![episode(200, 1, false)]),
         ]))
     }
